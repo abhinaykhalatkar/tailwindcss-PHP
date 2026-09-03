@@ -66,13 +66,21 @@ final class StaticSecurityChecks
     private const PCRE_ALLOWED = ['Support/Regex.php'];
 
     /**
-     * Files allowed to load code. Empty today: `bin/tailwind-php` is outside
-     * `src/`, and the `Engine\Data` loaders and `Console` bootstrap join this
-     * list when they exist (T-08).
+     * Files allowed to load code (threat T-08).
+     *
+     * `Config/ConfigFile.php` is the single sanctioned `require` site in `src/`
+     * (decision HBC-A9): a `config/tailwind.php` returns an array and has to be
+     * executed to do so. It earns the entry by proving, before the `require`,
+     * that the path is an existing `.php` file confined to the project root and
+     * **not** inside the cache directory — otherwise a written artefact could
+     * become executable configuration.
+     *
+     * `bin/tailwind-php` is outside `src/`; the `Engine\Data` loaders and the
+     * `Console` bootstrap join this list when they exist.
      *
      * @var list<string>
      */
-    private const CODE_LOADING_ALLOWED = [];
+    private const CODE_LOADING_ALLOWED = ['Config/ConfigFile.php'];
 
     /**
      * Request state is read only by the console (which has no request) and by
