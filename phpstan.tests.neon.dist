@@ -20,3 +20,5 @@ parameters:
         - tests
     treatPhpDocTypesAsCertain: false
     ignoreErrors: []
+    scanDirectories:
+        - tools

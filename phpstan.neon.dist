@@ -3,5 +3,10 @@ parameters:
     phpVersion: 70300
     paths:
         - src
+        - tools
+    excludePaths:
+        # php-cs-fixer's own manifest and vendor tree, installed by
+        # `composer tools:install`; not our code.
+        - tools/php-cs-fixer
     treatPhpDocTypesAsCertain: false
     ignoreErrors: []

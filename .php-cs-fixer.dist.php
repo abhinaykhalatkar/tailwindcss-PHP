@@ -8,7 +8,9 @@ $finder = PhpCsFixer\Finder::create()
         __DIR__ . '/tests',
         __DIR__ . '/tools',
         __DIR__ . '/bin',
-    ], 'is_dir'));
+    ], 'is_dir'))
+    // php-cs-fixer's own manifest and vendor tree live under tools/.
+    ->exclude('php-cs-fixer');
 
 $config = new PhpCsFixer\Config();
 
