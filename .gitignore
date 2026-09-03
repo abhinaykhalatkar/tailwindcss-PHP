@@ -1,6 +1,18 @@
-# --- orchestration board (multi-agent task board; never committed) ---
-.claude/orchestration/
-.claude/settings.local.json
-
-# --- extended by M0 scaffolding task (vendor/, build/, tools/.cache/, …) — keep the lines above ---
+# ============================================================================
+# Repository policy (owner decision, 2026-09-03):
+#   * Markdown is LOCAL-ONLY. Every *.md is ignored unless whitelisted below.
+#     Adding a whitelist entry is a human decision.
+#   * The planning kit (planning/), Claude Code files (.claude/) and the
+#     orchestration board are never committed.
+# The M0 tooling task appends build/tooling ignores BELOW this block and must
+# keep this block intact.
+# ============================================================================
 *.md
+!README.md
+!CHANGELOG.md
+!CONTRIBUTING.md
+!SECURITY.md
+!.github/**/*.md
+
+planning/
+.claude/
