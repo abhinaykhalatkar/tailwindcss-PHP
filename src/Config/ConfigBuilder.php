@@ -301,8 +301,16 @@ final class ConfigBuilder
      * writes a second line that looks like ours (threat T-06, design doc 15).
      * Control bytes become `\xNN` escapes, and the value is capped so a
      * megabyte-long key cannot flood the log either.
+     *
+     * **Public because it is the single home of this rule**, shared with
+     * {@see Config::bundle()} and {@see Driver::assert()}. A pure string
+     * function with no state: nothing of the builder comes with it, and
+     * `Driver::assert()` has no caller inside `src/`, so no request path pays
+     * to autoload this class for it.
+     *
+     * @internal Not part of the published configuration API.
      */
-    private static function safe(string $value): string
+    public static function safe(string $value): string
     {
         // 0x00–0x1F and 0x7F (DEL): everything that can move the cursor, end a
         // line, or vanish from a log viewer.
@@ -922,9 +930,9 @@ final class ConfigBuilder
             if (isset($seenRoute[$route])) {
                 $problems[] = \sprintf(
                     'Bundles "%s" and "%s" share the public_route "%s"; routes must be unique.',
-                    $seenRoute[$route],
-                    (string) $name,
-                    $route
+                    self::safe($seenRoute[$route]),
+                    self::safe((string) $name),
+                    self::safe($route)
                 );
 
                 continue;
@@ -934,9 +942,9 @@ final class ConfigBuilder
                 $problems[] = \sprintf(
                     'Bundles "%s" and "%s" have different public_route values ending in "%s", '
                     . 'which would collide in the cache directory.',
-                    $seenBasename[$basename],
-                    (string) $name,
-                    $basename
+                    self::safe($seenBasename[$basename]),
+                    self::safe((string) $name),
+                    self::safe($basename)
                 );
 
                 continue;
@@ -1016,7 +1024,16 @@ final class ConfigBuilder
         // inherited from the global map, which fromArray() has already checked
         // — re-checking it here reported one mistake once per bundle, so a
         // single bad `minify` produced three identical problems.
-        $touched = \array_intersect_key($overridden, $settable);
+        //
+        // The narrowing has to reach *inside* a nested map too: a bundle that
+        // overrides `engine.prefix` inherits the rest of `engine`, and a plain
+        // key-level intersect handed the whole merged map to checkTypes, so a
+        // bad global `engine.important` came back once per bundle as well.
+        $touched = self::narrowToTouched(
+            \array_intersect_key($overridden, $settable),
+            $settable,
+            $bundleSchema
+        );
 
         self::checkTypes($touched, $bundleSchema, $prefix, $problems);
         self::checkEnums($touched, $bundleSchema, $prefix, $problems);
@@ -1043,6 +1060,50 @@ final class ConfigBuilder
         }
 
         return \array_replace($merged, $overridden);
+    }
+
+    /**
+     * Restrict an effective bundle map to the members the bundle itself set,
+     * recursing into nested maps.
+     *
+     * Only nested *maps* are narrowed. A list (`sources`, `safelist`) is
+     * replaced wholesale by an override rather than merged, so if the bundle set
+     * it at all, every element of it is the bundle's own.
+     *
+     * @param array<string, mixed> $effective Merged values, already key-intersected.
+     * @param array<string, mixed> $settable The bundle's raw overrides.
+     * @param array<string, array<string, mixed>> $schema
+     *
+     * @return array<string, mixed>
+     */
+    private static function narrowToTouched(array $effective, array $settable, array $schema): array
+    {
+        foreach ($effective as $key => $value) {
+            $spec = $schema[$key] ?? null;
+
+            if ($spec === null || $spec['type'] !== 'map' || $spec['nested'] === []) {
+                continue;
+            }
+
+            if (!\is_array($value) || !isset($settable[$key]) || !\is_array($settable[$key])) {
+                continue;
+            }
+
+            /** @var array<string, mixed> $child */
+            $child = $value;
+            /** @var array<string, mixed> $childSettable */
+            $childSettable = $settable[$key];
+            /** @var array<string, array<string, mixed>> $childSchema */
+            $childSchema = $spec['nested'];
+
+            $effective[$key] = self::narrowToTouched(
+                \array_intersect_key($child, $childSettable),
+                $childSettable,
+                $childSchema
+            );
+        }
+
+        return $effective;
     }
 
     /**

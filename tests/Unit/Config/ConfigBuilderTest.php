@@ -657,6 +657,98 @@ final class ConfigBuilderTest extends TestCase
         ];
     }
 
+    /**
+     * The duplicate-route messages echo the route and its basename, both of
+     * which are user-supplied, so they get the same escaping as every other
+     * quoted value (T-06).
+     *
+     * @test
+     */
+    public function theDuplicateRouteMessageCannotForgeALogLine(): void
+    {
+        $forged = "x.css\n2026-01-01 FAKE";
+
+        $problems = \implode(' | ', $this->problemsFor(['bundles' => [
+            'a' => ['public_route' => $forged],
+            'b' => ['public_route' => $forged],
+        ]]));
+
+        self::assertStringNotContainsString("\n", $problems, 'A newline survived into a problem message.');
+        self::assertStringContainsString('\\n', $problems, 'The newline should appear as an escape.');
+    }
+
+    /** @test */
+    public function theSameBasenameMessageCannotForgeALogLine(): void
+    {
+        \mkdir($this->root . '/other');
+
+        $problems = \implode(' | ', $this->problemsFor(['bundles' => [
+            'a' => ['public_route' => "assets/x.css\nFAKE"],
+            'b' => ['public_route' => "other/x.css\nFAKE"],
+        ]]));
+
+        self::assertStringNotContainsString("\n", $problems);
+    }
+
+    /** @test */
+    public function everyDuplicateRouteProblemIsBounded(): void
+    {
+        \mkdir($this->root . '/other');
+
+        $problems = $this->problemsFor(['bundles' => [
+            'a' => ['public_route' => \str_repeat('q', 5000) . '/x.css'],
+            'b' => ['public_route' => 'other/x.css'],
+        ]]);
+
+        self::assertNotSame([], $problems);
+
+        foreach ($problems as $problem) {
+            self::assertLessThan(300, \strlen($problem), 'A problem line quoted a huge value in full.');
+        }
+    }
+
+    /**
+     * A bad *inherited* nested member belongs to the key the user wrote. A plain
+     * key-level intersect handed the whole merged `engine` map to the type check,
+     * so one bad global member came back once per bundle as well.
+     *
+     * @test
+     */
+    public function aGlobalNestedMapProblemIsNotRepeatedUnderEveryBundle(): void
+    {
+        $problems = $this->problemsFor([
+            'engine' => ['important' => 'yes'],
+            'bundles' => [
+                'a' => ['engine' => ['prefix' => 'tw'], 'public_route' => 'a.css'],
+                'b' => ['engine' => ['prefix' => 'tx'], 'public_route' => 'b.css'],
+            ],
+        ]);
+
+        $aboutImportant = [];
+
+        foreach ($problems as $problem) {
+            if (\strpos($problem, 'important') !== false) {
+                $aboutImportant[] = $problem;
+            }
+        }
+
+        self::assertSame(['Key "engine.important" must be a boolean, got string.'], $aboutImportant);
+    }
+
+    /**
+     * The narrowing must not hide a bundle's *own* bad nested member.
+     *
+     * @test
+     */
+    public function aBundlesOwnNestedMemberIsStillValidated(): void
+    {
+        $problems = \implode(' | ', $this->problemsFor([
+            'bundles' => ['a' => ['engine' => ['important' => 'yes'], 'public_route' => 'a.css']],
+        ]));
+
+        self::assertStringContainsString('Key "bundles.a.engine.important" must be a boolean', $problems);
+    }
+
     /** @test */
     public function twoBundlesMayNotShareARoute(): void
     {

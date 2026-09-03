@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use TailwindPhp\Config\Config;
 use TailwindPhp\Config\ConfigBuilder;
+use TailwindPhp\Exception\ConfigurationException;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -311,6 +312,40 @@ final class ConfigTest extends TestCase
         \file_put_contents($root . '/assets/styles/main.css', '@import "tailwindcss";');
 
         return $root;
+    }
+
+    /**
+     * The name comes from the caller and the message reaches a log, where a
+     * newline in it would forge an entry (T-06).
+     *
+     * @test
+     */
+    public function anUnknownBundleNameCannotForgeALogLine(): void
+    {
+        $config = $this->build([]);
+
+        try {
+            $config->bundle('nope' . \chr(10) . '2026-01-01 FAKE LOG LINE');
+
+            self::fail('An unknown bundle name was accepted.');
+        } catch (ConfigurationException $e) {
+            self::assertStringNotContainsString(\chr(10), $e->getMessage());
+            self::assertStringContainsString('\\n', $e->getMessage());
+        }
+    }
+
+    /** @test */
+    public function anUnknownBundleMessageIsTruncated(): void
+    {
+        $config = $this->build([]);
+
+        try {
+            $config->bundle(\str_repeat('z', 5000));
+
+            self::fail('An unknown bundle name was accepted.');
+        } catch (ConfigurationException $e) {
+            self::assertLessThan(300, \strlen($e->getMessage()));
+        }
     }
 
     /**

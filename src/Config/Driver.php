@@ -50,7 +50,12 @@ final class Driver
     public static function assert(string $driver): void
     {
         if (!self::isValid($driver)) {
-            throw new \InvalidArgumentException(\sprintf('Unknown compiler driver "%s".', $driver));
+            // Escaped and capped: the argument is caller-supplied and the
+            // message reaches a log, where a newline would forge an entry
+            // (T-06). One implementation of that rule, in ConfigBuilder.
+            throw new \InvalidArgumentException(
+                \sprintf('Unknown compiler driver "%s".', ConfigBuilder::safe($driver))
+            );
         }
     }
 }

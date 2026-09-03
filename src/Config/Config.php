@@ -85,7 +85,11 @@ final class Config
             throw new ConfigurationException([
                 \sprintf(
                     'Unknown bundle "%s"; configured bundles are: %s.',
-                    $name,
+                    // The name comes from the caller and lands in a log, so a
+                    // newline in it would forge a log line (T-06). The *known*
+                    // names need no escaping: they were validated against
+                    // `^[a-z0-9_-]{1,40}$` when the config was built.
+                    ConfigBuilder::safe($name),
                     \implode(', ', \array_keys($this->bundles))
                 ),
             ]);

@@ -120,4 +120,35 @@ final class DriverTest extends TestCase
             'a trailing space' => ['auto '],
         ];
     }
+
+    /**
+     * The argument is caller-supplied and the message reaches a log, where a
+     * newline would forge an entry (T-06).
+     *
+     * @test
+     */
+    public function anInvalidDriverCannotForgeALogLine(): void
+    {
+        try {
+            Driver::assert('cli' . \chr(10) . '2026-01-01 FAKE LOG LINE');
+
+            self::fail('An invalid driver was accepted.');
+        } catch (\InvalidArgumentException $e) {
+            // No raw newline; the two-character escape in its place.
+            self::assertStringNotContainsString(\chr(10), $e->getMessage());
+            self::assertStringContainsString('\\n', $e->getMessage());
+        }
+    }
+
+    /** @test */
+    public function anInvalidDriverMessageIsTruncated(): void
+    {
+        try {
+            Driver::assert(\str_repeat('z', 5000));
+
+            self::fail('An invalid driver was accepted.');
+        } catch (\InvalidArgumentException $e) {
+            self::assertLessThan(200, \strlen($e->getMessage()));
+        }
+    }
 }
