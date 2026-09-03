@@ -1,1 +1,6 @@
+# --- orchestration board (multi-agent task board; never committed) ---
+.claude/orchestration/
+.claude/settings.local.json
+
+# --- extended by M0 scaffolding task (vendor/, build/, tools/.cache/, …) — keep the lines above ---
 *.md
