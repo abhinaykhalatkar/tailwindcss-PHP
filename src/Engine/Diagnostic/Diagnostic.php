@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TailwindPhp\Engine\Diagnostic;
 
 use TailwindPhp\Exception\LogSafety;
+use TailwindPhp\Support\Bytes;
 
 /**
  * One compiler-level problem with a stable, documented code
@@ -217,12 +218,8 @@ final class Diagnostic
 
         // A drive prefix, with or without a following separator ("C:x" is
         // drive-relative and just as unusable in an artefact).
-        if (\strlen($path) >= 2 && $path[1] === ':') {
-            $ordinal = \ord($path[0]);
-
-            if (($ordinal >= 65 && $ordinal <= 90) || ($ordinal >= 97 && $ordinal <= 122)) {
-                return false;
-            }
+        if (\strlen($path) >= 2 && $path[1] === ':' && Bytes::isAsciiAlpha($path[0])) {
+            return false;
         }
 
         // Checked independently of LogSafety, which deliberately exempts
@@ -262,20 +259,16 @@ final class Diagnostic
         }
 
         for ($i = 0; $i < $position; ++$i) {
-            $ordinal = \ord($path[$i]);
             $char = $path[$i];
-
-            $isLetter = ($ordinal >= 65 && $ordinal <= 90) || ($ordinal >= 97 && $ordinal <= 122);
+            $ordinal = \ord($char);
             $isDigit = $ordinal >= 48 && $ordinal <= 57;
 
-            if (!$isLetter && !$isDigit && $char !== '+' && $char !== '.' && $char !== '-') {
+            if (!Bytes::isAsciiAlpha($char) && !$isDigit && $char !== '+' && $char !== '.' && $char !== '-') {
                 return false;
             }
         }
 
-        $first = \ord($path[0]);
-
-        return ($first >= 65 && $first <= 90) || ($first >= 97 && $first <= 122);
+        return Bytes::isAsciiAlpha($path[0]);
     }
 
     /**

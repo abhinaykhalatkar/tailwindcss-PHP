@@ -481,7 +481,7 @@ final class Path
         // Drive letters are understood on every platform: the lexical rules are
         // platform-independent and a "C:/…" value on POSIX simply will not match
         // any allowed root.
-        if (\strlen($path) >= 2 && $path[1] === ':' && self::isAsciiAlpha($path[0])) {
+        if (\strlen($path) >= 2 && $path[1] === ':' && Bytes::isAsciiAlpha($path[0])) {
             $rest = \substr($path, 2);
             $absolute = $rest !== '' && $rest[0] === '/';
 
@@ -521,7 +521,7 @@ final class Path
                 return null;
             }
 
-            if (\strlen($rest) >= 2 && $rest[1] === ':' && self::isAsciiAlpha($rest[0])) {
+            if (\strlen($rest) >= 2 && $rest[1] === ':' && Bytes::isAsciiAlpha($rest[0])) {
                 return [$marker . \strtoupper($rest[0]) . ':', \ltrim(\substr($rest, 2), '/'), true];
             }
 
@@ -589,7 +589,7 @@ final class Path
         return \strlen($normalized) >= 3
             && $normalized[1] === ':'
             && $normalized[2] === '/'
-            && self::isAsciiAlpha($normalized[0]);
+            && Bytes::isAsciiAlpha($normalized[0]);
     }
 
     /**
@@ -600,7 +600,7 @@ final class Path
     {
         return \strlen($normalized) >= 2
             && $normalized[1] === ':'
-            && self::isAsciiAlpha($normalized[0])
+            && Bytes::isAsciiAlpha($normalized[0])
             && !self::isAbsolute($normalized);
     }
 
@@ -684,21 +684,6 @@ final class Path
             // it is dropped rather than guessed at.
             return null;
         }
-    }
-
-    /**
-     * ASCII-only letter test.
-     *
-     * `ctype_alpha()` is avoided on purpose: it needs `ext-ctype`, which is not
-     * a declared dependency (ADR-008), and it is locale-dependent — under some
-     * locales a high byte counts as alphabetic, which would let "\xC9:/x" be
-     * read as a drive prefix.
-     */
-    private static function isAsciiAlpha(string $byte): bool
-    {
-        $ordinal = \ord($byte);
-
-        return ($ordinal >= 65 && $ordinal <= 90) || ($ordinal >= 97 && $ordinal <= 122);
     }
 
     private static function isWindows(): bool

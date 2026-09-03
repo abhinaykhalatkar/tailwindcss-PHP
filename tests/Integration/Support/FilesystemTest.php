@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use TailwindPhp\Support\Filesystem;
 use TailwindPhp\Support\FilesystemInterface;
+use TailwindPhp\Tests\Support\TempTree;
 
 /**
  * Integration rather than unit: every method of the facade is a syscall, so the
@@ -30,35 +31,18 @@ final class FilesystemTest extends TestCase
     {
         parent::setUp();
 
-        $base = \realpath(\sys_get_temp_dir());
-
-        if ($base === false) {
-            self::markTestSkipped('The system temp directory could not be resolved.');
-        }
-
-        $this->root = \rtrim(\str_replace('\\', '/', $base), '/')
-            . '/tailwindphp-fs-' . \bin2hex(\random_bytes(6));
-
-        \mkdir($this->root, 0777, true);
+        $this->root = TempTree::make('tailwindphp-fs');
 
         $this->fs = new Filesystem();
 
         // Backup cleanup: tearDown handles the normal path, this catches a
         // fatal that skips it (design doc 16 §Integration test conventions).
-        $dir = $this->root;
-
-        \register_shutdown_function(static function () use ($dir): void {
-            if (\is_dir($dir)) {
-                self::removeTree($dir);
-            }
-        });
+        TempTree::registerShutdownCleanup($this->root);
     }
 
     protected function tearDown(): void
     {
-        if ($this->root !== '' && \is_dir($this->root)) {
-            self::removeTree($this->root);
-        }
+        TempTree::remove($this->root);
 
         parent::tearDown();
     }
@@ -360,32 +344,5 @@ final class FilesystemTest extends TestCase
         \file_put_contents($path, $contents);
 
         return $path;
-    }
-
-    private static function removeTree(string $dir): void
-    {
-        $entries = \scandir($dir);
-
-        if ($entries === false) {
-            return;
-        }
-
-        foreach ($entries as $entry) {
-            if ($entry === '.' || $entry === '..') {
-                continue;
-            }
-
-            $full = $dir . '/' . $entry;
-
-            if (\is_dir($full) && !\is_link($full)) {
-                self::removeTree($full);
-
-                continue;
-            }
-
-            \unlink($full);
-        }
-
-        \rmdir($dir);
     }
 }

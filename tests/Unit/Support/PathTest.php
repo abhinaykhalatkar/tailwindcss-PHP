@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use TailwindPhp\Exception\PathException;
 use TailwindPhp\Support\Path;
+use TailwindPhp\Tests\Support\TempTree;
 
 /**
  * Covers design doc 12 threats T-01 (traversal via configuration), T-02
@@ -35,14 +36,7 @@ final class PathTest extends TestCase
     {
         parent::setUp();
 
-        $base = \realpath(\sys_get_temp_dir());
-
-        if ($base === false) {
-            self::markTestSkipped('The system temp directory could not be resolved.');
-        }
-
-        $this->root = \rtrim(\str_replace('\\', '/', $base), '/')
-            . '/tailwindphp-path-' . \bin2hex(\random_bytes(6));
+        $this->root = TempTree::make('tailwindphp-path');
 
         \mkdir($this->root . '/assets/styles', 0777, true);
         \mkdir($this->root . '/templates', 0777, true);
@@ -57,16 +51,14 @@ final class PathTest extends TestCase
             // A junction whose target has gone still occupies a directory entry
             // but reports is_dir() === false, so existence is checked by looking
             // for the name in its parent rather than by stat-ing it.
-            if (self::entryExists($junction)) {
+            if (TempTree::entryExists($junction)) {
                 \rmdir($junction);
             }
         }
 
         $this->junctions = [];
 
-        if ($this->root !== '' && \is_dir($this->root)) {
-            self::removeTree($this->root);
-        }
+        TempTree::remove($this->root);
 
         parent::tearDown();
     }
@@ -1118,88 +1110,5 @@ final class PathTest extends TestCase
         }
 
         self::assertFalse(Path::isSymlinkEscape($link, [$this->root]));
-    }
-
-    private static function removeTree(string $dir): void
-    {
-        $entries = \scandir($dir);
-
-        if ($entries === false) {
-            return;
-        }
-
-        foreach ($entries as $entry) {
-            if ($entry === '.' || $entry === '..') {
-                continue;
-            }
-
-            $full = $dir . '/' . $entry;
-
-            if (\is_link($full) || \is_file($full)) {
-                \unlink($full);
-
-                continue;
-            }
-
-            if (\is_dir($full)) {
-                // A Windows junction reports is_link() === false and
-                // is_dir() === true, so recursing here would follow the link and
-                // delete the *target's* contents. Remove the reparse point
-                // itself instead; rmdir() unlinks it without touching the target.
-                if (self::isReparsePoint($full)) {
-                    \rmdir($full);
-
-                    continue;
-                }
-
-                self::removeTree($full);
-
-                continue;
-            }
-
-            // Matches none of the stat predicates: a junction whose target has
-            // gone. It still occupies an entry, so the directory cannot be
-            // removed until it is unlinked.
-            \rmdir($full);
-        }
-
-        \rmdir($dir);
-    }
-
-    /**
-     * Whether a directory entry of this name exists, including a dangling
-     * junction that `is_dir()`/`file_exists()` both report as absent.
-     */
-    private static function entryExists(string $path): bool
-    {
-        $parent = \dirname($path);
-
-        if (!\is_dir($parent)) {
-            return false;
-        }
-
-        $entries = \scandir($parent);
-
-        return $entries !== false && \in_array(\basename($path), $entries, true);
-    }
-
-    /**
-     * True when a directory entry redirects elsewhere — a junction or a symlink
-     * to a directory. Detected by comparing the resolved path with the lexical
-     * one rather than by `readlink()`, which warns on ordinary directories.
-     */
-    private static function isReparsePoint(string $dir): bool
-    {
-        $real = \realpath($dir);
-
-        if ($real === false) {
-            return true;
-        }
-
-        $normalized = \str_replace('\\', '/', $real);
-
-        return \DIRECTORY_SEPARATOR === '\\'
-            ? \strcasecmp($normalized, $dir) !== 0
-            : $normalized !== $dir;
     }
 }

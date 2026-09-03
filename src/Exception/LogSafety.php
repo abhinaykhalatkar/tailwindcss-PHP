@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace TailwindPhp\Exception;
 
+use TailwindPhp\Support\Bytes;
+
 /**
  * Removes anything shaped like a filesystem location from text that is about to
  * be logged, shown in the debug overlay, or written into a cache artefact
@@ -177,7 +179,7 @@ final class LogSafety
         if (
             \strlen($value) >= 3
             && $value[1] === ':'
-            && self::isAsciiAlpha($value[0])
+            && Bytes::isAsciiAlpha($value[0])
             && ($value[2] === '/' || $value[2] === '\\')
         ) {
             return true;
@@ -204,7 +206,7 @@ final class LogSafety
         for ($i = 0; $i < $position; ++$i) {
             $char = $value[$i];
 
-            if (self::isAsciiAlpha($char)) {
+            if (Bytes::isAsciiAlpha($char)) {
                 continue;
             }
 
@@ -220,17 +222,6 @@ final class LogSafety
             }
         }
 
-        return self::isAsciiAlpha($value[0]);
-    }
-
-    /**
-     * ASCII-only letter test — `ctype_alpha()` needs `ext-ctype`, which is not a
-     * declared dependency (ADR-008), and is locale-dependent.
-     */
-    private static function isAsciiAlpha(string $byte): bool
-    {
-        $ordinal = \ord($byte);
-
-        return ($ordinal >= 65 && $ordinal <= 90) || ($ordinal >= 97 && $ordinal <= 122);
+        return Bytes::isAsciiAlpha($value[0]);
     }
 }

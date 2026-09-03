@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace TailwindPhp\Exception;
 
+use TailwindPhp\Support\Bytes;
+
 /**
  * The single implementation of {@see TailwindPhpException::context()} and of the
  * log-safety rule that goes with it.
@@ -98,15 +100,8 @@ trait ExceptionContext
 
         $isAbsolute = \strncmp($path, '/', 1) === 0
             || \strncmp($path, '\\', 1) === 0
-            || (\strlen($path) >= 2 && $path[1] === ':' && self::isAsciiAlphaByte($path[0]));
+            || (\strlen($path) >= 2 && $path[1] === ':' && Bytes::isAsciiAlpha($path[0]));
 
         return $isAbsolute ? '<absolute path redacted>' : LogSafety::scrubText($path);
-    }
-
-    private static function isAsciiAlphaByte(string $byte): bool
-    {
-        $ordinal = \ord($byte);
-
-        return ($ordinal >= 65 && $ordinal <= 90) || ($ordinal >= 97 && $ordinal <= 122);
     }
 }

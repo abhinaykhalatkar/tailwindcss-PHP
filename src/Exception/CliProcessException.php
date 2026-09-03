@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TailwindPhp\Exception;
 
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
+use TailwindPhp\Support\Bytes;
 
 /**
  * The standalone Tailwind binary exited non-zero, crashed, or could not be
@@ -47,7 +48,7 @@ final class CliProcessException extends CompilationException
         $trimmed = \trim(self::scrubText($stderr));
 
         if (\strlen($trimmed) > self::STDERR_LIMIT) {
-            $trimmed = self::cutAtCharacterBoundary($trimmed, self::STDERR_LIMIT) . '…';
+            $trimmed = Bytes::cutAtCharacterBoundary($trimmed, self::STDERR_LIMIT) . '…';
         }
 
         parent::__construct(
@@ -76,80 +77,5 @@ final class CliProcessException extends CompilationException
     public function stderr(): string
     {
         return $this->stderr;
-    }
-
-    /**
-     * Cut to at most $length bytes without splitting a UTF-8 sequence.
-     *
-     * Implemented here rather than delegating to `Support\Str`: the exception
-     * layer sits below Support in the dependency order (design doc 17), and a
-     * half-emitted character in a log line is invalid UTF-8 that can break
-     * whatever reads it.
-     */
-    private static function cutAtCharacterBoundary(string $value, int $length): string
-    {
-        if ($length <= 0) {
-            return '';
-        }
-
-        if (\strlen($value) <= $length) {
-            return $value;
-        }
-
-        $cut = \substr($value, 0, $length);
-        $index = \strlen($cut);
-        $steps = 0;
-
-        // Walk back over continuation bytes (10xxxxxx) to the lead byte.
-        while ($index > 0 && $steps <= 4) {
-            $byte = \ord($cut[$index - 1]);
-
-            if (($byte & 0xC0) === 0x80) {
-                --$index;
-                ++$steps;
-
-                continue;
-            }
-
-            $sequenceLength = self::sequenceLength($byte);
-
-            if ($sequenceLength === 0) {
-                return \substr($cut, 0, $index - 1);
-            }
-
-            return ($index - 1) + $sequenceLength <= \strlen($cut)
-                ? \substr($cut, 0, ($index - 1) + $sequenceLength)
-                : \substr($cut, 0, $index - 1);
-        }
-
-        // A run of continuation bytes longer than any real sequence means the
-        // input is not valid UTF-8 at this point. Returning '' here would throw
-        // away the whole excerpt over a few stray bytes, so keep the raw cut:
-        // a bounded, slightly-invalid excerpt is far more useful than nothing.
-        return $cut;
-    }
-
-    /**
-     * Length of the UTF-8 sequence a lead byte starts, or 0 if it cannot.
-     */
-    private static function sequenceLength(int $leadByte): int
-    {
-        if (($leadByte & 0x80) === 0x00) {
-            return 1;
-        }
-
-        if (($leadByte & 0xE0) === 0xC0) {
-            return 2;
-        }
-
-        if (($leadByte & 0xF0) === 0xE0) {
-            return 3;
-        }
-
-        if (($leadByte & 0xF8) === 0xF0) {
-            return 4;
-        }
-
-        return 0;
     }
 }

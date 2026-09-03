@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TailwindPhp\Tests\Security;
 
 use PHPUnit\Framework\TestCase;
+use TailwindPhp\Tests\Support\TempTree;
 use TailwindPhp\Tools\StaticSecurityChecks;
 
 /**
@@ -41,9 +42,7 @@ final class StaticChecksTest extends TestCase
     protected function tearDown(): void
     {
         foreach ($this->tempDirs as $dir) {
-            if (\is_dir($dir)) {
-                self::removeTree($dir);
-            }
+            TempTree::remove($dir);
         }
 
         $this->tempDirs = [];
@@ -394,40 +393,10 @@ final class StaticChecksTest extends TestCase
 
     private function makeTempDir(): string
     {
-        $dir = \str_replace('\\', '/', \sys_get_temp_dir())
-            . '/tailwindphp-checks-' . \bin2hex(\random_bytes(6));
-
-        \mkdir($dir, 0777, true);
+        $dir = TempTree::make('tailwindphp-checks');
 
         $this->tempDirs[] = $dir;
 
         return $dir;
-    }
-
-    private static function removeTree(string $dir): void
-    {
-        $entries = \scandir($dir);
-
-        if ($entries === false) {
-            return;
-        }
-
-        foreach ($entries as $entry) {
-            if ($entry === '.' || $entry === '..') {
-                continue;
-            }
-
-            $full = $dir . '/' . $entry;
-
-            if (\is_dir($full) && !\is_link($full)) {
-                self::removeTree($full);
-
-                continue;
-            }
-
-            \unlink($full);
-        }
-
-        \rmdir($dir);
     }
 }
