@@ -1,0 +1,199 @@
+<?php
+
+declare(strict_types=1);
+
+namespace TailwindPhp\Support;
+
+/**
+ * The handful of byte-safe string helpers the polyfill does not already give us
+ * (design doc 17 §Support).
+ *
+ * Everything here works on **bytes**. `ext-mbstring` is not a dependency
+ * (ADR-008) and CSS, class names and paths are all handled byte-wise
+ * (design doc 18 §Design rules), so `strlen`/`substr` are the right tools and
+ * `mb_*` is never used. The one place character boundaries matter is
+ * {@see self::truncateBytes()}, which decodes UTF-8 lead bytes by hand rather
+ * than reaching for an extension.
+ *
+ * `str_contains`, `str_starts_with` and `str_ends_with` are deliberately absent:
+ * they come from `symfony/polyfill-php80`, which is a required runtime
+ * dependency (design doc 14 §Forbidden constructs).
+ */
+final class Str
+{
+    /**
+     * Longest UTF-8 sequence, in bytes.
+     */
+    private const MAX_SEQUENCE = 4;
+
+    private function __construct()
+    {
+    }
+
+    /**
+     * Remove $prefix from the front of $s, once, if it is there.
+     */
+    public static function removePrefix(string $s, string $prefix): string
+    {
+        if ($prefix === '' || !\str_starts_with($s, $prefix)) {
+            return $s;
+        }
+
+        return \substr($s, \strlen($prefix));
+    }
+
+    /**
+     * Remove $suffix from the end of $s, once, if it is there.
+     */
+    public static function removeSuffix(string $s, string $suffix): string
+    {
+        if ($suffix === '' || !\str_ends_with($s, $suffix)) {
+            return $s;
+        }
+
+        return \substr($s, 0, \strlen($s) - \strlen($suffix));
+    }
+
+    /**
+     * Everything after the last occurrence of $needle, or the whole string when
+     * $needle does not occur.
+     */
+    public static function afterLast(string $s, string $needle): string
+    {
+        if ($needle === '') {
+            return $s;
+        }
+
+        $position = \strrpos($s, $needle);
+
+        if ($position === false) {
+            return $s;
+        }
+
+        return \substr($s, $position + \strlen($needle));
+    }
+
+    /**
+     * Everything before the first occurrence of $needle, or the whole string
+     * when $needle does not occur.
+     */
+    public static function beforeFirst(string $s, string $needle): string
+    {
+        if ($needle === '') {
+            return $s;
+        }
+
+        $position = \strpos($s, $needle);
+
+        if ($position === false) {
+            return $s;
+        }
+
+        return \substr($s, 0, $position);
+    }
+
+    /**
+     * Shorten $s so the result is at most $maxBytes bytes **including**
+     * $ellipsis, without ever cutting through a UTF-8 sequence.
+     *
+     * The budget is a byte budget because that is what the consumers care
+     * about: doc 15's `message_short` is capped at 200 bytes before it goes into
+     * a manifest, and a log line truncated mid-character is invalid UTF-8 that
+     * can break whatever reads it later.
+     *
+     * When $maxBytes cannot even hold the ellipsis, a byte-safe prefix of the
+     * ellipsis is returned, so the contract "never longer than $maxBytes, never
+     * invalid UTF-8" holds for every input.
+     */
+    public static function truncateBytes(string $s, int $maxBytes, string $ellipsis = '...'): string
+    {
+        if ($maxBytes <= 0) {
+            return '';
+        }
+
+        if (\strlen($s) <= $maxBytes) {
+            return $s;
+        }
+
+        $keep = $maxBytes - \strlen($ellipsis);
+
+        if ($keep <= 0) {
+            return self::cutAtCharacterBoundary($ellipsis, $maxBytes);
+        }
+
+        return self::cutAtCharacterBoundary($s, $keep) . $ellipsis;
+    }
+
+    /**
+     * Cut $s to at most $length bytes, backing off to the last complete UTF-8
+     * character rather than splitting one.
+     *
+     * Walks back from the cut over continuation bytes (`10xxxxxx`) until it
+     * finds a lead byte, then keeps the sequence only if all of it fits.
+     */
+    private static function cutAtCharacterBoundary(string $s, int $length): string
+    {
+        if ($length <= 0) {
+            return '';
+        }
+
+        if (\strlen($s) <= $length) {
+            return $s;
+        }
+
+        $cut = \substr($s, 0, $length);
+        $index = \strlen($cut);
+        $steps = 0;
+
+        while ($index > 0 && $steps <= self::MAX_SEQUENCE) {
+            $byte = \ord($cut[$index - 1]);
+
+            // Continuation byte: we are inside a sequence, keep walking back.
+            if (($byte & 0xC0) === 0x80) {
+                --$index;
+                ++$steps;
+
+                continue;
+            }
+
+            $sequenceLength = self::sequenceLength($byte);
+
+            if ($sequenceLength === 0) {
+                // Not a valid lead byte; drop it and stop.
+                return \substr($cut, 0, $index - 1);
+            }
+
+            // Keep the whole sequence when it fits, otherwise drop all of it.
+            return ($index - 1) + $sequenceLength <= \strlen($cut)
+                ? \substr($cut, 0, ($index - 1) + $sequenceLength)
+                : \substr($cut, 0, $index - 1);
+        }
+
+        return '';
+    }
+
+    /**
+     * Length in bytes of the UTF-8 sequence a lead byte starts, or 0 when the
+     * byte cannot begin one.
+     */
+    private static function sequenceLength(int $leadByte): int
+    {
+        if (($leadByte & 0x80) === 0x00) {
+            return 1;
+        }
+
+        if (($leadByte & 0xE0) === 0xC0) {
+            return 2;
+        }
+
+        if (($leadByte & 0xF0) === 0xE0) {
+            return 3;
+        }
+
+        if (($leadByte & 0xF8) === 0xF0) {
+            return 4;
+        }
+
+        return 0;
+    }
+}
