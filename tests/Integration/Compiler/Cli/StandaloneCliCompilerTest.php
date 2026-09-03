@@ -273,7 +273,7 @@ final class StandaloneCliCompilerTest extends TestCase
      */
     public function aCompileErrorBecomesDiagnosticsRatherThanAnException(): void
     {
-        $result = $this->compileEntry("/* fake: fail 2 */\n.entry{}\n");
+        $result = $this->compileEntry(":root{--fake:'fake: fail 2'}\n.entry{}\n");
 
         self::assertTrue($result->hasErrors());
         self::assertSame('', $result->css());
@@ -295,7 +295,7 @@ final class StandaloneCliCompilerTest extends TestCase
     {
         $this->expectException(CliProcessException::class);
 
-        $this->compileEntry("/* fake: fail-silent */\n.entry{}\n");
+        $this->compileEntry(":root{--fake:'fake: fail-silent'}\n.entry{}\n");
     }
 
     /**
@@ -309,7 +309,7 @@ final class StandaloneCliCompilerTest extends TestCase
     {
         $this->expectException(CliProcessException::class);
 
-        $this->compileEntry("/* fake: garbage */\n.entry{}\n");
+        $this->compileEntry(":root{--fake:'fake: garbage'}\n.entry{}\n");
     }
 
     // -------------------------------------------------------------- cleanup
@@ -332,12 +332,12 @@ final class StandaloneCliCompilerTest extends TestCase
 
         self::assertSame([], $this->directoriesInCache(), 'after a successful compile');
 
-        $this->compileEntry("/* fake: fail 2 */\n.entry{}\n");
+        $this->compileEntry(":root{--fake:'fake: fail 2'}\n.entry{}\n");
 
         self::assertSame([], $this->directoriesInCache(), 'after a compile error');
 
         try {
-            $this->compileEntry("/* fake: fail-silent */\n.entry{}\n");
+            $this->compileEntry(":root{--fake:'fake: fail-silent'}\n.entry{}\n");
 
             self::fail('Unparseable stderr must not return normally.');
         } catch (\TailwindPhp\Exception\CliProcessException $e) {
@@ -347,7 +347,7 @@ final class StandaloneCliCompilerTest extends TestCase
         self::assertSame([], $this->directoriesInCache(), 'after unparseable stderr');
 
         try {
-            $this->compileEntry("/* fake: garbage */\n.entry{}\n");
+            $this->compileEntry(":root{--fake:'fake: garbage'}\n.entry{}\n");
 
             self::fail('A missing output file must not return normally.');
         } catch (\TailwindPhp\Exception\CliProcessException $e) {
@@ -516,7 +516,7 @@ final class StandaloneCliCompilerTest extends TestCase
      */
     public function acolouredErrorLineIsStillAcompileError(): void
     {
-        $result = $this->compileEntry("/* fake: fail-ansi 2 */\n.a{}\n");
+        $result = $this->compileEntry(":root{--fake:'fake: fail-ansi 2'}\n.a{}\n");
 
         $codes = [];
 
@@ -570,9 +570,141 @@ final class StandaloneCliCompilerTest extends TestCase
         // The fixture plants the link instead of writing a real output.css.
         $this->expectException(CliProcessException::class);
 
-        $this->compileEntry(\sprintf("/* fake: link-output %s */\n.a{}\n", $secret));
+        $this->compileEntry(\sprintf(":root{--fake:'fake: link-output %s'}\n.a{}\n", $secret));
     }
 
+    /**
+     * An at-rule is found wherever CSS lets it sit (CCP-A31).
+     *
+     * Anchoring the scan at statement start read well and was wrong:
+     * `.a{} @import "/../../etc/passwd";` is a perfectly valid stylesheet, and
+     * that directive was invisible to the scan, so it travelled to the binary
+     * with `--cwd` set and no confinement — the exact hole the confinement
+     * exists to close.
+     *
+     * @dataProvider unanchoredHostileEntries
+     *
+     * @test
+     */
+    public function anAtRuleIsCaughtWhereverItSits(string $entry, string $absent): void
+    {
+        $result = $this->compileEntry($entry);
+
+        self::assertStringNotContainsString($absent, $this->recordedString('input'));
+        self::assertNotSame([], $result->diagnostics()->all(), 'The directive was dropped without a word.');
+    }
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function unanchoredHostileEntries(): array
+    {
+        return [
+            'import after a rule' => ['.a{} @import "/../../etc/passwd";', 'etc/passwd'],
+            'import after a comment' => ['/*x*/ @import "../../secret.css";', 'secret.css'],
+            'source after a rule' => ['.b{} @source "/";', '@source "/"'],
+            'source after a comment' => ['/*y*/ @source "/";', '@source "/"'],
+        ];
+    }
+
+    /**
+     * Comments are removed before the scan, so a commented-out import is gone
+     * with the comment rather than skipped by an anchor (CCP-A31).
+     *
+     * @test
+     */
+    public function acommentedOutImportIsRemovedWithItsComment(): void
+    {
+        $result = $this->compileEntry(
+            "/* @import \"./ghost.css\"; */\n.a{color:red}\n",
+            ['flex'],
+            false,
+            ['ghost.css' => '.g{}']
+        );
+
+        self::assertSame([], $result->imports());
+        self::assertStringNotContainsString('ghost.css', $this->recordedString('input'));
+    }
+
+    /**
+     * The indented forms still work — the point of CCP-A31 is to catch more, not
+     * to stop catching what already worked.
+     *
+     * @test
+     */
+    public function anIndentedImportIsStillInlined(): void
+    {
+        $result = $this->compileEntry(
+            "    @import \"./partial.css\";\n.a{}\n",
+            ['flex'],
+            false,
+            ['partial.css' => '.p{--inlined:1}']
+        );
+
+        self::assertSame(['partial.css'], $result->imports());
+        self::assertStringContainsString('.p{--inlined:1}', $this->recordedString('input'));
+    }
+
+    /**
+     * Anything that names a filesystem location, in any spelling, is refused
+     * rather than forwarded (CCP-A29 amended).
+     *
+     * @dataProvider pathLikeSpecifiers
+     *
+     * @test
+     */
+    public function apathLikeSpecifierIsNeverForwarded(string $specifier): void
+    {
+        $result = $this->compileEntry(\sprintf('@import "%s";', $specifier));
+
+        self::assertTrue($result->diagnostics()->hasErrors(), 'No diagnostic for a refused path.');
+        self::assertStringNotContainsString($specifier, $this->recordedString('input'));
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function pathLikeSpecifiers(): array
+    {
+        return [
+            'posix absolute' => ['/etc/passwd'],
+            'windows drive' => ['C:/Windows/win.ini'],
+            'windows relative' => ['..\..\secret'],
+            'dot backslash' => ['.\sibling'],
+            'php wrapper' => ['php://input'],
+            'data wrapper' => ['data://x'],
+        ];
+    }
+
+    /**
+     * A bare package specifier is still the binary's business — without this the
+     * test above could be satisfied by refusing everything.
+     *
+     * @dataProvider barePackageSpecifiers
+     *
+     * @test
+     */
+    public function abarePackageSpecifierStillReachesTheBinary(string $specifier): void
+    {
+        $this->compileEntry(\sprintf('@import "%s";', $specifier));
+
+        self::assertStringContainsString(
+            \sprintf('@import "%s";', $specifier),
+            $this->recordedString('input')
+        );
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function barePackageSpecifiers(): array
+    {
+        return [
+            'package' => ['tailwindcss'],
+            'subpath' => ['tailwindcss/utilities'],
+            'scoped' => ['@tailwindcss/typography'],
+        ];
+    }
     /**
      * Drive one compile against the fixture binary.
      *

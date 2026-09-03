@@ -96,9 +96,20 @@ final class DriverResolver implements DriverResolverInterface
      */
     public function resolve(array $cliConfig, ?array $cachedProbe): DriverResolution
     {
-        $driver = isset($cliConfig['driver']) && \is_string($cliConfig['driver'])
-            ? $cliConfig['driver']
-            : self::AUTO;
+        // `array_key_exists`, not `isset`: a `driver` explicitly set to null is a
+        // mistake worth reporting, and `isset()` cannot tell it from an absent
+        // key. Absent is the only case that legitimately means "use the default".
+        if (!\array_key_exists('driver', $cliConfig)) {
+            $driver = self::AUTO;
+        } elseif (!\is_string($cliConfig['driver'])) {
+            // A non-string used to fall through to `auto` exactly as an unknown
+            // string did, with the same consequence: a config that meant
+            // something else could end up executing the binary. The type is as
+            // much a contract as the value.
+            throw new \InvalidArgumentException('cli.driver must be a string: one of "php", "cli" or "auto".');
+        } else {
+            $driver = $cliConfig['driver'];
+        }
 
         // Anything not exactly one of the three is a mistake, and the dangerous
         // reading is the permissive one: `'PHP'`, `'cli '` and `'nonsense'` used

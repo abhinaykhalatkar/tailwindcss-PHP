@@ -338,6 +338,60 @@ final class DriverResolverTest extends TestCase
     }
 
     /**
+     * A `driver` of the wrong *type* is refused too.
+     *
+     * It used to fall through to `auto` exactly as an unknown string did, with
+     * the same consequence: a config that meant something else could end up
+     * executing the binary. `null` is included because an explicitly-null value
+     * is a mistake worth reporting, and `isset()` cannot tell it from an absent
+     * key — which is why the resolver uses `array_key_exists()`.
+     *
+     * @param mixed $driver
+     *
+     * @dataProvider nonStringDriverValues
+     *
+     * @test
+     */
+    public function anonStringDriverValueIsRejected($driver): void
+    {
+        $config = $this->config('auto');
+        $config['driver'] = $driver;
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->resolver(true)->resolve($config, null);
+    }
+
+    /**
+     * @return array<string, array{mixed}>
+     */
+    public static function nonStringDriverValues(): array
+    {
+        return [
+            'array' => [['cli']],
+            'int' => [1],
+            'bool' => [true],
+            'null' => [null],
+        ];
+    }
+
+    /**
+     * An *absent* key is the one case that legitimately means "use the default",
+     * so it must not throw — otherwise the check above would break every caller
+     * that simply omits the key.
+     *
+     * @test
+     */
+    public function anAbsentDriverKeyStillDefaultsToAuto(): void
+    {
+        $config = $this->config('auto');
+
+        unset($config['driver']);
+
+        self::assertSame('cli-double', $this->resolver(true)->resolve($config, null)->compiler()->name());
+    }
+
+    /**
      * @return array<string, array{string}>
      */
     public static function unknownDriverValues(): array

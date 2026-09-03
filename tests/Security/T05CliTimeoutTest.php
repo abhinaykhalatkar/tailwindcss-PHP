@@ -152,12 +152,11 @@ final class T05CliTimeoutTest extends TestCase
      * the *request* and nothing else — the CPU, the memory and the disk are still
      * being spent, which is the denial of service T-05 is about.
      *
-     * Identified by the temp directory's name, which appears in the child's
-     * `--cwd` argument and is unique to this compile, so a concurrent suite or a
-     * stray fixture from another run cannot be mistaken for our child. The
-     * bracket in the pattern is the classic `ps | grep '[x]yz'` guard: `pgrep -f`
-     * would otherwise match the shell it is itself running in, whose command line
-     * contains the pattern literally.
+     * Identified by the **pid the fixture recorded for itself** before sleeping,
+     * which is unambiguous in a way the alternatives are not: a machine-wide
+     * `php.exe` count answers "is anything running?" and goes red as soon as an
+     * unrelated PHP process exists, and a `pgrep -f` pattern matches the shell
+     * that is running the `pgrep`. See {@see self::assertTheChildIsDead()}.
      *
      * @test
      */
@@ -289,7 +288,7 @@ final class T05CliTimeoutTest extends TestCase
     private function compileHanging(): void
     {
         $this->compiler()->compile(
-            \sprintf("/* fake: sleep %d */\n.t05-entry{color:red}\n", self::SLEEP_SEC),
+            \sprintf(":root{--fake:'fake: sleep %d'}\n.t05-entry{color:red}\n", self::SLEEP_SEC),
             new InMemoryImportResolver([]),
             ['flex'],
             new CompileOptions(false, false)

@@ -258,7 +258,11 @@ final class T03CliArgvTest extends TestCase
 
         try {
             $this->compiler()->compile(
-                \sprintf("/* %s */\n.t03-entry{color:red}\n", self::ENTRY_SENTINEL),
+                // In a declaration, not a comment: comments are stripped from the
+                // entry before the at-rule scan (CCP-A31), so a sentinel hidden
+                // in one would be legitimately removed and this test would fail
+                // for a reason that has nothing to do with argv.
+                \sprintf(".t03-entry{color:red;content:'%s'}\n", self::ENTRY_SENTINEL),
                 new InMemoryImportResolver([]),
                 self::HOSTILE_CANDIDATES,
                 new CompileOptions(true, false)

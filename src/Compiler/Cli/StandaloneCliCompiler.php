@@ -15,6 +15,7 @@ use TailwindPhp\Engine\Import\ImportResolverInterface;
 use TailwindPhp\Exception\CacheWriteException;
 use TailwindPhp\Exception\CliProcessException;
 use TailwindPhp\Exception\PathException;
+use TailwindPhp\Support\Bytes;
 use TailwindPhp\Support\FilesystemInterface;
 use TailwindPhp\Support\Path;
 use TailwindPhp\Support\Regex;
@@ -118,18 +119,37 @@ final class StandaloneCliCompiler implements CompilerInterface
      * One `@import`, quoted, with or without `url(...)` and with whatever media
      * or layer clause follows it. Unquoted `url(foo.css)` is deliberately not
      * matched: it is left for the binary rather than half-understood here.
+     *
+     * **Unanchored** (CCP-A31). It was previously pinned to statement start,
+     * which reads well and is wrong: `.a{} @import "../../etc/passwd";` is a
+     * perfectly valid stylesheet and the at-rule there was invisible to this
+     * scan, so it travelled to the binary unconfined — the exact hole the
+     * confinement exists to close. Anchoring was doing the job that
+     * {@see self::withoutComments()} now does properly.
      */
-    private const IMPORT_PATTERN = '#^\s*@import\s*(?:url\(\s*)?([\'"])([^\'"\r\n]*)\1\s*\)?\s*[^;\r\n]*;#mi';
+    private const IMPORT_PATTERN = '#@import\s*(?:url\(\s*)?([\'"])([^\'"\r\n]*)\1\s*\)?\s*[^;\r\n]*;#i';
 
     /**
-     * One `@source` directive (CCP-A30).
-     *
-     * Case-insensitive and anchored at statement start for the same reasons as
-     * {@see self::IMPORT_PATTERN}: the casing is the author's choice rather than
-     * a contract, and anchoring keeps a directive mentioned inside a comment or
-     * a string from being treated as a real one.
+     * One `@source` directive (CCP-A30), unanchored for the same reason as
+     * {@see self::IMPORT_PATTERN}: `.b{} @source "/";` points the binary at the
+     * whole disk just as effectively from the middle of a line.
      */
-    private const SOURCE_PATTERN = '#^\s*@source\s[^;\r\n]*;#mi';
+    private const SOURCE_PATTERN = '#@source\s[^;\r\n]*;#i';
+
+    /**
+     * A CSS block comment, including an unterminated one at end of input.
+     *
+     * Removed before any at-rule scan (CCP-A31). Anchoring used to stand in for
+     * comment handling — a commented-out `@import` was ignored because it was
+     * rarely at statement start — which worked by accident and failed the moment
+     * a comment preceded a real directive on the same line. Deleting comments
+     * first makes both cases follow from one rule: what remains is code.
+     *
+     * The unterminated arm matters because a stylesheet ending mid-comment would
+     * otherwise keep its `@import`s live, and a truncated file is exactly when
+     * that is least likely to be intended.
+     */
+    private const COMMENT_PATTERN = '#/\*.*?(?:\*/|$)#s';
 
     /**
      * ANSI CSI sequences (`ESC [ … final`) and OSC strings (`ESC ] … BEL`, or
@@ -265,10 +285,18 @@ final class StandaloneCliCompiler implements CompilerInterface
             $inlined = [];
             $notices = [];
 
-            // `@source` in the entry would override the `@source none` below and
-            // point the binary at the whole disk, so it is removed and reported
-            // rather than honoured (CCP-A30).
-            $body = $this->stripSourceDirectives($entryCss, $notices);
+            // Comments go first, and everything downstream depends on it
+            // (CCP-A31). Both scans below are unanchored, so a directive is found
+            // wherever it sits — which is correct, because CSS lets it sit
+            // anywhere — and that is only safe once commented-out text is no
+            // longer there to be found. One rule instead of two half-rules: what
+            // survives this line is code.
+            $body = self::withoutComments($entryCss);
+
+            // `@source` in the entry would override the `@source none` in the
+            // preamble and point the binary at the whole disk, so it is removed
+            // and reported rather than honoured (CCP-A30).
+            $body = $this->stripSourceDirectives($body, $notices);
             $input = self::SOURCE_PREAMBLE . $this->inlineImports($body, $imports, '', 0, $inlined, $notices);
 
             // Candidates go to disk on **one space-separated line** (CCP-A10),
@@ -322,22 +350,52 @@ final class StandaloneCliCompiler implements CompilerInterface
     }
 
     /**
-     * Whether a specifier names a path rather than a package (CCP-A29).
+     * Whether a specifier must not be forwarded to the binary (CCP-A29,
+     * amended).
      *
-     * Deliberately the same test as `FilesystemImportResolver::looksLikeAPath()`:
-     * the resolver decides what it will *try* to resolve, and this decides what
-     * must not be forwarded when it declines. If the two disagreed, a specifier
-     * could fall between them and reach the binary unconfined — so they have to
-     * be the same rule, and this comment is here because they live in two files.
+     * **This is deliberately wider than `FilesystemImportResolver`'s test**, and
+     * the earlier docblock claiming parity was wrong. The two answer different
+     * questions. The resolver asks "is this something I should try to resolve?"
+     * and may reasonably say no to `/etc/passwd` — it is not a project-relative
+     * import. This asks "may the binary be handed this?", and for `/etc/passwd`
+     * the answer is emphatically no. Making them identical would mean every
+     * specifier the resolver declines gets forwarded, which is how an absolute
+     * path reaches a program running with `--cwd` set and no confinement at all.
+     *
+     * So: anything that looks like a filesystem location in any spelling, plus
+     * the three degenerate forms, is refused. What passes through is only a bare
+     * package specifier — `tailwindcss`, `tailwindcss/utilities`,
+     * `@tailwindcss/typography` — which is the binary's own business to resolve
+     * and the one thing it does better than we do.
      */
     private static function looksLikeAPath(string $specifier): bool
     {
+        // Degenerate: not a path we would resolve, and emphatically not one to
+        // forward. A wrapper (`php://`, `data://`) is a path in the only sense
+        // that matters — it names something the binary would go and read.
         if ($specifier === '' || Path::hasNul($specifier) || Path::isWrapper($specifier)) {
-            // Not a path we would resolve, and emphatically not one to forward.
             return true;
         }
 
-        if (\strncmp($specifier, './', 2) === 0 || \strncmp($specifier, '../', 3) === 0) {
+        // Relative, POSIX-absolute, or UNC/Windows-absolute.
+        if (
+            \strncmp($specifier, './', 2) === 0
+            || \strncmp($specifier, '../', 3) === 0
+            || $specifier[0] === '/'
+            || $specifier[0] === '\\'
+        ) {
+            return true;
+        }
+
+        // A drive letter, with or without a separator: `C:/x`, `C:x` (which is
+        // drive-relative and just as much a filesystem location).
+        if (\strlen($specifier) >= 2 && $specifier[1] === ':' && Bytes::isAsciiAlpha($specifier[0])) {
+            return true;
+        }
+
+        // A backslash anywhere makes it a Windows path spelling — `..\..\secret`
+        // has no leading `./` to catch it.
+        if (\strpos($specifier, '\\') !== false) {
             return true;
         }
 
@@ -399,19 +457,23 @@ final class StandaloneCliCompiler implements CompilerInterface
      */
     private function stripSourceDirectives(string $css, array &$notices): string
     {
-        $found = [];
+        // A counter, not a list: the directives themselves were collected and
+        // then never read, and the message is deliberately identical for each —
+        // echoing the operator's own `@source "/"` back into a diagnostic would
+        // put a configured path somewhere it can be rendered (T-06).
+        $removed = 0;
 
         $stripped = Regex::replaceCallback(
             self::SOURCE_PATTERN,
-            function (array $matches) use (&$found): string {
-                $found[] = \trim($matches[0]);
+            function (array $matches) use (&$removed): string {
+                ++$removed;
 
                 return '';
             },
             $css
         );
 
-        foreach ($found as $directive) {
+        for ($i = 0; $i < $removed; ++$i) {
             $notices[] = new Diagnostic(
                 Diagnostic::WARNING,
                 Diagnostic::W_SOURCE_IGNORED,
@@ -420,6 +482,21 @@ final class StandaloneCliCompiler implements CompilerInterface
         }
 
         return $stripped;
+    }
+
+    /**
+     * The stylesheet with its comments removed (CCP-A31).
+     *
+     * Not a CSS parser, and it does not need to be. A comment-opening sequence
+     * appearing inside a string literal would be treated as a comment here too,
+     * and that is harmless: this text is only ever scanned for at-rules and then
+     * handed to the binary. The one thing that must not happen — a real directive
+     * escaping the scan because a comment sat in front of it — is exactly what
+     * this prevents.
+     */
+    private static function withoutComments(string $css): string
+    {
+        return Regex::replace(self::COMMENT_PATTERN, '', $css);
     }
 
     /**
