@@ -9,6 +9,7 @@ use TailwindPhp\Cache\AtomicWriter;
 use TailwindPhp\Cache\CacheStore;
 use TailwindPhp\Cache\FlockBuildLock;
 use TailwindPhp\Cache\Manifest;
+use TailwindPhp\Exception\CacheWriteException;
 use TailwindPhp\Support\Filesystem;
 use TailwindPhp\Support\SystemClock;
 use TailwindPhp\Tests\Support\TempTree;
@@ -154,6 +155,62 @@ final class T13CacheRaceTest extends TestCase
             self::assertNotSame('', $observed, 'The stable copy was truncated to zero bytes.');
         } finally {
             \fclose($reader);
+        }
+    }
+
+    /**
+     * The fingerprinted artefact is written **first**; the stable copy only
+     * after it succeeded. A reader that follows the new manifest must never
+     * find `<b>.css` updated while `<b>.<fp>.css` is still missing.
+     *
+     * Made to fail deterministically by pre-planting a **directory** at the
+     * fingerprinted name: `rename` cannot replace a directory, so step ① fails
+     * and step ③ must never run.
+     *
+     * @test
+     */
+    public function aFailedFingerprintedWriteNeverUpdatesTheStableCopy(): void
+    {
+        $root = $this->tempDir();
+        $store = $this->store($root, $cacheDir);
+        $store->ensureDirectory();
+
+        \mkdir($store->fingerprintedCssPath('app', self::NEW_FP));
+
+        try {
+            $store->writeCss('app', self::NEW_FP, '.new{}');
+
+            self::fail('Writing over a directory should have failed.');
+        } catch (CacheWriteException $e) {
+            self::assertFalse(
+                \is_file($store->cssPath('app')),
+                'The stable copy was written even though its fingerprinted source failed.'
+            );
+        }
+    }
+
+    /**
+     * The same ordering for the compressed pair.
+     *
+     * @test
+     */
+    public function aFailedFingerprintedGzWriteNeverUpdatesTheStableCopy(): void
+    {
+        $root = $this->tempDir();
+        $store = $this->store($root, $cacheDir);
+        $store->ensureDirectory();
+
+        \mkdir($store->fingerprintedGzPath('app', self::NEW_FP));
+
+        try {
+            $store->writeGz('app', self::NEW_FP, (string) \gzencode('.new{}', 9));
+
+            self::fail('Writing over a directory should have failed.');
+        } catch (CacheWriteException $e) {
+            self::assertFalse(
+                \is_file($store->gzPath('app')),
+                'The stable gz copy was written even though its fingerprinted source failed.'
+            );
         }
     }
 

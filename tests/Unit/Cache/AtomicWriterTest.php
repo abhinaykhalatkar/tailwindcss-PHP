@@ -197,12 +197,22 @@ final class AtomicWriterTest extends TestCase
     /**
      * A source-order assertion, which is unusual and deliberate.
      *
-     * Both properties are unobservable from outside: the temp name is
-     * unpredictable by design, so nothing can race the window between `chmod`
-     * and `rename`, and the exclusive-create mode leaves no trace when it
-     * succeeds. A mutant that swapped `'xb'` for `'wb'`, or moved the `chmod`
-     * after the `rename`, survived the entire suite — so the source is what is
-     * asserted, with the reason recorded here rather than in a commit message.
+     * **What this pins:** that the temp file is opened with the non-clobbering
+     * `'xb'` mode (T-14), that `chmod` is called before `rename` (T-17), and
+     * that the `copy()` fallback has not returned (CCP-A26).
+     *
+     * **What it cannot pin:** the *behaviour*, only this spelling of it. Both
+     * properties are unobservable from outside — the temp name is unpredictable
+     * by design, so nothing can race the window between `chmod` and `rename`,
+     * and exclusive-create leaves no trace when it succeeds. A mutant that
+     * swapped `'xb'` for `'wb'`, or moved the `chmod` after the `rename`,
+     * survived the entire suite, which is why this exists at all.
+     *
+     * **The trade-off, stated plainly:** rewriting the call — extracting the
+     * mode into a constant, aliasing `chmod`, moving the rename into a helper —
+     * silently un-pins it, because the strings below stop matching while the
+     * assertions still pass. If you change the shape of `write()`, change these
+     * needles in the same commit.
      *
      * @test
      */

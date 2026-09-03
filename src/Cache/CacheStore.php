@@ -151,6 +151,23 @@ final class CacheStore
         ?LoggerInterface $logger = null,
         ?ClockInterface $clock = null
     ) {
+        // Listing the cache directory among its own allowed roots re-creates the
+        // exact bug CCP-A27 fixed: `isSymlinkEscape()` resolves its roots, so a
+        // junctioned cache directory would resolve "inside" itself and the T-14
+        // check would pass for the one case it exists to catch. Refused here,
+        // where it is a programming error, rather than silently disarming the
+        // guard at run time.
+        $normalizedCacheDir = self::comparableRoot($cacheDir);
+
+        foreach ($allowedRoots as $root) {
+            if (\is_string($root) && self::comparableRoot($root) === $normalizedCacheDir) {
+                throw new CacheException(
+                    'The cache directory may not be listed among its own allowed roots: '
+                    . 'that would make the symlink-escape check vacuous.'
+                );
+            }
+        }
+
         $this->cacheDir = $cacheDir;
         $this->allowedRoots = \array_values($allowedRoots);
         $this->projectRoot = $projectRoot;
@@ -263,10 +280,12 @@ final class CacheStore
             } catch (\RuntimeException $e) {
                 // The facade reports an absolute path; that must not reach a log
                 // (T-06) and the docblock promises CacheException.
+                $relative = $this->relative($this->cacheDir);
+
                 throw new CacheException(
-                    \sprintf('The cache directory "%s" could not be created.', $this->relative($this->cacheDir)),
+                    \sprintf('The cache directory "%s" could not be created.', $relative),
                     [],
-                    $e
+                    self::scrubbedCause('mkdir', $relative)
                 );
             }
         }
@@ -310,8 +329,12 @@ final class CacheStore
      * A fingerprinted artefact. Failure here is fatal: this is the file the
      * manifest will name and the pipeline will serve (CCP-A17).
      *
-     * The name encodes the content hash, so a file that already exists with the
-     * same size holds the same bytes — rewriting it would churn a file another
+     * Skipped when the file already there has the same **truncated content
+     * hash** (it is in the name) **and** the same byte length. That pair is not
+     * a proof of identical bytes, but the bound is comfortable: the fingerprint
+     * is 8–16 hex characters, so a collision needs a second CSS document whose
+     * SHA-256 shares the first 32–64 bits *and* whose length matches exactly.
+     * Against that, rewriting the file on every build churns an artefact another
      * request may be streaming, for no change (decision CCP-A26).
      *
      * @throws \TailwindPhp\Exception\CacheWriteException
@@ -393,10 +416,12 @@ final class CacheStore
                 // The facade reports an absolute path (T-06). A failed touch
                 // only means Last-Modified did not move, so the build is still
                 // correct — but it is reported, not swallowed.
+                $relative = $this->relative($path);
+
                 throw new CacheException(
-                    \sprintf('The cache artefact "%s" could not be touched.', $this->relative($path)),
+                    \sprintf('The cache artefact "%s" could not be touched.', $relative),
                     [],
-                    $e
+                    self::scrubbedCause('touch', $relative)
                 );
             }
         }
@@ -640,10 +665,12 @@ final class CacheStore
         try {
             return $this->fs->unlink($path) ? 1 : 0;
         } catch (\RuntimeException $e) {
+            $relative = $this->relative($path);
+
             throw new CacheException(
-                \sprintf('The cache artefact "%s" could not be removed.', $this->relative($path)),
+                \sprintf('The cache artefact "%s" could not be removed.', $relative),
                 [],
-                $e
+                self::scrubbedCause('unlink', $relative)
             );
         }
     }
@@ -814,6 +841,31 @@ final class CacheStore
     private function path(string $leaf): string
     {
         return Path::confine($this->cacheDir . '/' . $leaf, $this->cacheDir);
+    }
+
+    /**
+     * A path reduced to the form two roots can be compared in: normalised
+     * separators, no trailing slash, and case-folded on Windows, where
+     * `C:/Cache` and `c:/cache` are the same directory.
+     */
+    private static function comparableRoot(string $path): string
+    {
+        $normalized = \rtrim(Path::normalize($path), '/');
+
+        return \DIRECTORY_SEPARATOR === '\\' ? \strtolower($normalized) : $normalized;
+    }
+
+    /**
+     * Re-wrap a filesystem failure so the chain carries no absolute path.
+     *
+     * The facade's message names the absolute path. Chaining it verbatim kept
+     * the top-level message clean while `getPrevious()->getMessage()` still
+     * leaked the server layout to any logger that walks the chain (T-06). The
+     * cause is preserved as a fact and a type; only its wording is replaced.
+     */
+    private static function scrubbedCause(string $operation, string $relativePath): \RuntimeException
+    {
+        return new \RuntimeException(\sprintf('%s failed for "%s".', $operation, $relativePath));
     }
 
     /**

@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use TailwindPhp\Cache\AtomicWriter;
 use TailwindPhp\Cache\CacheStore;
+use TailwindPhp\Exception\CacheException;
 use TailwindPhp\Exception\PathException;
 use TailwindPhp\Support\Filesystem;
 use TailwindPhp\Tests\Support\TempTree;
@@ -647,6 +648,155 @@ final class CacheStoreTest extends TestCase
 
         self::assertTrue(\is_file($fresh), 'prune() removed a temp file a live write may own.');
         self::assertFalse(\is_file($stale), 'prune() left hour-old debris behind.');
+    }
+
+    /**
+     * Listing the cache directory among its own allowed roots re-creates the
+     * defect CCP-A27 fixed: `isSymlinkEscape()` resolves its roots, so the
+     * directory would always resolve "inside" itself and the T-14 check would
+     * pass for exactly the case it exists to catch. Refused at construction,
+     * where it is a programming error.
+     *
+     * @test
+     *
+     * @dataProvider cacheDirSpellings
+     */
+    public function theCacheDirectoryMayNotBeOneOfItsOwnAllowedRoots(bool $trailingSlash, bool $upperCase): void
+    {
+        $entry = $this->cacheDir;
+
+        if ($trailingSlash) {
+            $entry .= '/';
+        }
+
+        if ($upperCase) {
+            if (\DIRECTORY_SEPARATOR !== '\\') {
+                self::markTestSkipped('Path comparison is case-sensitive off Windows.');
+            }
+
+            $entry = \strtoupper($entry);
+        }
+
+        $this->expectException(CacheException::class);
+
+        new CacheStore(
+            $this->cacheDir,
+            [$this->root, $entry],
+            $this->root,
+            0755,
+            0644,
+            true,
+            new Filesystem(),
+            new AtomicWriter($this->root),
+            null
+        );
+    }
+
+    /**
+     * @return array<string, array{0: bool, 1: bool}>
+     */
+    public static function cacheDirSpellings(): array
+    {
+        return [
+            'exactly' => [false, false],
+            'with a trailing slash' => [true, false],
+            'in a different case' => [false, true],
+        ];
+    }
+
+    /**
+     * The message names the problem in prose and quotes no path — it is thrown
+     * from a constructor that may be handed anything (T-06).
+     *
+     * @test
+     */
+    public function theAllowedRootsRejectionQuotesNoPath(): void
+    {
+        try {
+            new CacheStore(
+                $this->cacheDir,
+                [$this->cacheDir],
+                $this->root,
+                0755,
+                0644,
+                true,
+                new Filesystem(),
+                new AtomicWriter($this->root),
+                null
+            );
+
+            self::fail('The cache directory was accepted among its own allowed roots.');
+        } catch (CacheException $e) {
+            self::assertStringNotContainsString($this->cacheDir, $e->getMessage());
+            self::assertDoesNotMatchRegularExpression('#[A-Za-z]:[\\\\/]#', $e->getMessage());
+        }
+    }
+
+    /**
+     * A legitimate root that merely *contains* the cache directory is fine —
+     * that is the normal arrangement.
+     *
+     * @test
+     */
+    public function anAncestorOfTheCacheDirectoryIsAValidRoot(): void
+    {
+        $store = new CacheStore(
+            $this->cacheDir,
+            [$this->root],
+            $this->root,
+            0755,
+            0644,
+            true,
+            new Filesystem(),
+            new AtomicWriter($this->root),
+            null
+        );
+
+        self::assertSame($this->cacheDir, $store->cacheDir());
+    }
+
+    /**
+     * The facade reports failures with an **absolute** path. Chaining it as
+     * `previous` kept the top-level message clean while any logger walking the
+     * chain still printed the server layout (T-06).
+     *
+     * @test
+     */
+    public function noAbsolutePathAppearsAnywhereInAFailureChain(): void
+    {
+        // A file where the cache directory should be: mkdir cannot succeed.
+        $root = TempTree::make('tailwindphp-chain');
+        $blocked = $root . '/cache';
+        \file_put_contents($blocked, 'blocker');
+
+        $store = new CacheStore(
+            $blocked . '/tailwind',
+            [$root],
+            $root,
+            0755,
+            0644,
+            true,
+            new Filesystem(),
+            new AtomicWriter($root),
+            null
+        );
+
+        try {
+            $store->ensureDirectory();
+
+            self::fail('Creating a directory over a file should have failed.');
+        } catch (CacheException $e) {
+            for ($t = $e; $t !== null; $t = $t->getPrevious()) {
+                self::assertStringNotContainsString(
+                    $root,
+                    $t->getMessage(),
+                    \sprintf('%s leaked an absolute path.', \get_class($t))
+                );
+                self::assertDoesNotMatchRegularExpression('#[A-Za-z]:[\\\\/]#', $t->getMessage());
+            }
+        } finally {
+            TempTree::remove($root);
+        }
     }
 
     // ----------------------------------------------------------------- helpers
