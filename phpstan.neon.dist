@@ -1,0 +1,7 @@
+parameters:
+    level: 8
+    phpVersion: 70300
+    paths:
+        - src
+    treatPhpDocTypesAsCertain: false
+    ignoreErrors: []

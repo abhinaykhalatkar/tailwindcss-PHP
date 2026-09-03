@@ -16,3 +16,14 @@
 
 planning/
 .claude/
+
+/vendor/
+/composer.lock
+/build/
+/tools/.cache/
+.phpunit.result.cache
+/.phpunit.cache/
+.php-cs-fixer.cache
+/.phpcs-cache
+/tools/php-cs-fixer/vendor/
+/tools/php-cs-fixer/composer.lock

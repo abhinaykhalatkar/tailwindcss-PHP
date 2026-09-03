@@ -1,0 +1,8 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+if (PHP_SAPI !== 'cli') { fwrite(STDERR, "tailwind-php must be run from the command line.\n"); exit(2); }
+foreach ([__DIR__.'/../vendor/autoload.php', __DIR__.'/../../../autoload.php', __DIR__.'/../autoload.php'] as $file) {
+    if (is_file($file)) { require $file; break; }
+}
+exit((new TailwindPhp\Console\Application())->run($argv));

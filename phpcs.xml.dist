@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<ruleset name="tailwindcss-php">
+    <description>PSR-12 coding standard for tailwindcss-php.</description>
+
+    <arg name="extensions" value="php"/>
+    <arg name="colors"/>
+
+    <file>src</file>
+    <file>tests</file>
+    <file>bin</file>
+
+    <exclude-pattern>vendor</exclude-pattern>
+
+    <rule ref="PSR12"/>
+</ruleset>

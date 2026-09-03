@@ -1,0 +1,22 @@
+# Analysis of tests/ runs WITHOUT a pinned phpVersion, unlike phpstan.neon.dist.
+#
+# The test classes extend PHPUnit\Framework\TestCase. Under `phpVersion: 70300`
+# PHPStan cannot reflect that class at all — PHPUnit 11's source uses native PHP 8
+# union and `mixed` types, and reflection below 8.0.0 semantics fails outright
+# (reproduced identically on PHPStan 1.12 and 2.x; 70400 also fails, 80000 passes).
+# Every test class then reports `class.notFound` plus follow-on `staticMethod.notFound`,
+# which are non-ignorable and say nothing about our own code.
+#
+# The PHP 7.3 floor for tests/ is therefore enforced by four other gates instead:
+#   * the real-7.3 `php -l` CI job (design doc 20 § ci.yml, lint-73),
+#   * the 7.3 and 7.4 cells of the CI test matrix,
+#   * php-cs-fixer's @PHP73Migration rule set, and
+#   * the php73-compat skill's forbidden-construct grep.
+#
+# src/ keeps its 7.3 pin in phpstan.neon.dist, which is where the floor actually matters.
+parameters:
+    level: 8
+    paths:
+        - tests
+    treatPhpDocTypesAsCertain: false
+    ignoreErrors: []
