@@ -1,0 +1,62 @@
+{
+    "schema": 2,
+    "package_version": "0.1.0-dev",
+    "config_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bundle": "app",
+    "driver": "php",
+    "driver_version": "0.1.0",
+    "driver_probe": null,
+    "built_at": 1756857600,
+    "build_ms": 42.5,
+    "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "fingerprint": "0123456789ab",
+    "minified": true,
+    "candidates_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "candidates_count": 3,
+    "input": "resources/css/app.css",
+    "imports": [
+        "resources/css/components.css"
+    ],
+    "roots": {
+        "input": [
+            "resources/css"
+        ],
+        "watch": [
+            "config"
+        ],
+        "sources": [
+            "templates"
+        ]
+    },
+    "files": {
+        "resources/css/app.css": {
+            "k": "i",
+            "m": 1756857000,
+            "s": 128
+        },
+        "templates/home.twig": {
+            "k": "s",
+            "m": 1756857100,
+            "s": 512,
+            "c": [
+                "flex",
+                "p-4"
+            ]
+        }
+    },
+    "safelist_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "inline_sources": [
+        "mt-2"
+    ],
+    "warnings": [
+        {
+            "level": "warning",
+            "code": "W_UNKNOWN_UTILITY",
+            "message": "Unknown utility.",
+            "file": "templates/home.twig",
+            "line": 12,
+            "candidate": "bg-nope-500"
+        }
+    ],
+    "last_error": null
+}

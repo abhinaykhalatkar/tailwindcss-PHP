@@ -1,0 +1,25 @@
+# Deny direct web access to the tailwindcss-php cache directory.
+#
+# Written by CacheStore::ensureDirectory() when the directory is created. The
+# cache holds build manifests naming project-relative paths, and a directory
+# listing of it would map out the application (threats T-06, T-07). Stylesheets
+# are served through PHP, never from here.
+#
+# Both forms are present because the module that answers depends on the server:
+# Apache 2.4 uses mod_authz_core, Apache 2.2 mod_access_compat. Each is wrapped
+# in IfModule so the other's directives do not abort startup with a 500.
+#
+# This is a second line of defence. The first is putting cache_dir outside the
+# document root, which is the default and what the documentation recommends:
+# nginx and Caddy ignore this file entirely.
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    <IfModule mod_access_compat.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</IfModule>
