@@ -1,0 +1,22 @@
+version: 2
+
+updates:
+  # Only dev dependencies ever move: the runtime requirements are frozen by ADR-008.
+  - package-ecosystem: composer
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      dev-dependencies:
+        dependency-type: development
+
+  # php-cs-fixer has its own manifest: it cannot run on the PHP 7.3 floor.
+  - package-ecosystem: composer
+    directory: "/tools/php-cs-fixer"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

@@ -1,0 +1,212 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One run per ref; superseded runs are cancelled (design doc 20 § Workflows).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Cheapest gate first: syntax on the floor version (design doc 20, doc 14 § Tooling).
+  # Deliberately Composer-free — `php -l` needs no autoloader, and the dev toolchain
+  # cannot resolve on 7.3 (php-cs-fixer requires ^7.4 || ^8.0).
+  lint-73:
+    name: Lint (PHP 7.3 floor)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.3'
+          coverage: none
+
+      - name: php -l on every file
+        run: find $(ls -d src tests tools bin 2>/dev/null) -name '*.php' -print0 | xargs -0 -n1 php -l
+
+  # PHPStan and php-cs-fixer need PHP >= 7.4 to run; they analyse for 7.3 (ADR-007).
+  static:
+    name: Static analysis (PHP 8.3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: pcov
+
+      - name: Resolve Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-8.3-highest-${{ hashFiles('composer.json') }}
+          restore-keys: ${{ runner.os }}-composer-8.3-
+
+      # No composer.lock is committed (design doc 17), so `update` is used throughout —
+      # `install` would ignore --prefer-lowest in the tests matrix.
+      - name: Install dependencies
+        run: composer update --no-interaction --no-progress
+
+      # php-cs-fixer lives in its own manifest because it cannot run on the 7.3 floor.
+      - name: Install pinned tools
+        run: composer tools:install
+
+      - name: Coding standards (php-cs-fixer --dry-run + phpcs)
+        run: composer cs
+
+      - name: PHPStan (level 8, phpVersion 70300)
+        run: composer stan
+
+      # Informational until M4, then --strict.
+      - name: Requirements traceability report
+        if: hashFiles('tools/requirements-report.php') != ''
+        continue-on-error: true
+        run: php tools/requirements-report.php --check
+
+  tests:
+    name: Tests PHP ${{ matrix.php }} (${{ matrix.deps }})${{ matrix.restricted && ' restricted' || '' }}
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.3', '7.4', '8.0', '8.1', '8.2', '8.3', '8.4']
+        deps: ['highest']
+        # `restricted` is declared here with its default so that the `restricted: true`
+        # entry below is created as an ADDITIONAL job. Without this key, GitHub would
+        # merge it into the existing 8.3/highest combination (an include only creates a
+        # new combination when it would overwrite an original matrix value) and the
+        # unrestricted 8.3 coverage job would disappear.
+        restricted: [false]
+        include:
+          - php: '7.3'
+            deps: 'lowest'
+          - php: '8.4'
+            deps: 'lowest'
+          - php: '8.5'
+            deps: 'highest'
+            experimental: true
+          # Shared-host simulation, NFR-COMPAT-3 (design doc 14 § CI matrix).
+          - php: '8.3'
+            deps: 'highest'
+            restricted: true
+    steps:
+      - uses: actions/checkout@v4
+
+      # disable_functions is NOT set here: it would also disable Composer, which needs
+      # proc_open. It is applied to the PHPUnit process only, in the test step below.
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: ${{ matrix.restricted && 'json' || 'json, zlib, apcu' }}
+          coverage: ${{ matrix.php == '8.3' && matrix.deps == 'highest' && !matrix.restricted && 'pcov' || 'none' }}
+
+      - name: Resolve Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ matrix.php }}-${{ matrix.deps }}-${{ hashFiles('composer.json') }}
+          restore-keys: ${{ runner.os }}-composer-${{ matrix.php }}-
+
+      - name: Install dependencies
+        run: composer update ${{ matrix.deps == 'lowest' && '--prefer-lowest --prefer-stable' || '' }} --no-interaction --no-progress
+
+      - name: Run test suites
+        run: |
+          mkdir -p build
+          php ${{ matrix.restricted && '-d disable_functions=proc_open,exec,shell_exec,popen,system,passthru' || '' }} vendor/bin/phpunit --testsuite Unit,Integration,Conformance,Security --log-junit build/junit.xml
+
+      - name: Upload JUnit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.php }}-${{ matrix.deps }}${{ matrix.restricted && '-restricted' || '' }}
+          path: build/junit.xml
+          if-no-files-found: ignore
+
+      - name: Coverage
+        if: matrix.php == '8.3' && matrix.deps == 'highest' && !matrix.restricted && hashFiles('tools/coverage-check.php') != ''
+        run: composer test:coverage
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Resolve Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-8.3-highest-${{ hashFiles('composer.json') }}
+          restore-keys: ${{ runner.os }}-composer-8.3-
+
+      - name: Install dependencies
+        run: composer update --no-interaction --no-progress
+
+      - name: Advisory audit
+        run: composer audit
+
+      - name: Static security checks
+        if: hashFiles('tools/static-security-checks.php') != ''
+        run: php tools/static-security-checks.php
+
+  bench-pr:
+    name: Benchmarks (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          ini-values: opcache.enable_cli=1
+          coverage: none
+
+      - name: Resolve Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-8.3-highest-${{ hashFiles('composer.json') }}
+          restore-keys: ${{ runner.os }}-composer-8.3-
+
+      - name: Install dependencies
+        run: composer update --no-interaction --no-progress
+
+      - name: Run benchmarks
+        run: composer bench
+        env:
+          BENCH_TOLERANCE: '1.25'
+
+      # The sticky Markdown table comment (design doc 20 § ci.yml) is added in M1
+      # together with the benchmark report script.

@@ -1,0 +1,61 @@
+tailwindcss-php
+Copyright (c) 2026 abhinay khalatkar
+
+This product is licensed under the MIT License. See the LICENSE file for the
+terms that apply to this package.
+
+--------------------------------------------------------------------------------
+Independence and trademarks
+--------------------------------------------------------------------------------
+
+This project is an independent implementation. It is not affiliated with,
+sponsored by, or endorsed by Tailwind Labs Inc.
+
+"Tailwind" and "Tailwind CSS" are trademarks of Tailwind Labs Inc. The name is
+used here only to describe what this package is compatible with, following the
+community convention for framework integrations. No Tailwind logo or other
+Tailwind brand asset is used or distributed by this project.
+
+--------------------------------------------------------------------------------
+Third-party attribution: Tailwind CSS
+--------------------------------------------------------------------------------
+
+The pure-PHP engine ships data derived from Tailwind CSS:
+
+  * the preflight base stylesheet, and
+  * the default theme (design tokens),
+
+converted from the upstream Tailwind CSS sources into PHP data files under
+src/Engine/Data/. Each generated file carries a header naming the generator and
+the upstream Tailwind CSS version it was produced from.
+
+Tailwind CSS is copyright (c) Tailwind Labs, Inc. and is distributed under the
+MIT License, reproduced in full below. Upstream project:
+https://github.com/tailwindlabs/tailwindcss
+
+    MIT License
+
+    Copyright (c) Tailwind Labs, Inc.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+The official Tailwind CSS standalone CLI, which this package can optionally
+download and execute on hosts that allow it, is not distributed with this
+package. It is fetched from the upstream release artefacts and verified against
+a pinned SHA-256 checksum table before use.

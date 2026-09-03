@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/abhinaykhalatkar/tailwindcss-PHP/security/policy
+    about: Please report vulnerabilities privately through GitHub Security Advisories, never in a public issue.
