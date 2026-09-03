@@ -280,9 +280,11 @@ final class DiagnosticTest extends TestCase
             'W_CANDIDATE_LIMIT',
             'W_FILE_TOO_LARGE',
             'W_BINARY_SKIPPED',
+            'W_FILE_UNREADABLE',
             'W_ROOT_MISSING',
             'W_MANIFEST_CORRUPT',
             'W_CHECKSUM_UNKNOWN',
+            'W_SOURCE_IGNORED',
             'I_DRIVER_SELECTED',
         ];
 

@@ -1,0 +1,225 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * A stand-in for the Tailwind standalone binary (decision CCP-A23).
+ *
+ * It exists so `StandaloneCliCompiler` can be tested without downloading a
+ * 100 MB binary, and — more importantly — so the *misbehaving* cases can be
+ * tested at all: a real binary cannot be asked to hang, or to exit non-zero
+ * with unparseable stderr, on demand.
+ *
+ * Written in PHP rather than as a shell script so one fixture serves both
+ * platforms; `fake-tailwindcss.cmd` beside it is the Windows shim.
+ *
+ * **Misbehaviour is triggered by a marker line inside the input CSS**, never by
+ * an environment variable. An env switch would be a real switch: something that
+ * could be set outside a test and change how the shipped code behaves. A marker
+ * in a file the test itself wrote cannot leak. The markers are CSS comments
+ * reading `fake: <instruction>`:
+ *
+ *   fake: sleep 3       sleep, to exercise the timeout
+ *   fake: fail 2        exit 2 after two parseable `Error:` lines
+ *   fake: fail-silent   exit 2 with nothing parseable on stderr
+ *   fake: garbage       exit 0 but write no output file
+ *
+ * It records what it received so a test can assert exactly what reached the
+ * process (threat T-03). Two things about that record are deliberate:
+ *
+ * - **It is written beside `--cwd`, not inside it.** The compiler removes its
+ *   temp directory in a `finally` and unlinks only the three names it created,
+ *   so a fourth file inside `--cwd` would make `rmdir` fail and leave the
+ *   directory behind — the exact opposite of what the cleanup tests must
+ *   observe. `<parent>/<name>.argv.json` also outlives the cleanup, which is
+ *   what lets a test read it after `compile()` has returned.
+ * - **It carries the input and candidate text, and the directory's mode.**
+ *   `input.css` and `candidates.txt` are gone by the time a test could open
+ *   them, so they are captured here while they still exist.
+ */
+
+/**
+ * The words following a marker, up to the end of its comment.
+ *
+ * `explode`, not a PCRE split: `preg_*` is confined to `Support\Regex` by static
+ * rule R1, and while a fixture is not scanned by that rule, keeping to the same
+ * habit costs nothing.
+ *
+ * @return list<string>
+ */
+function fake_words(string $css, string $marker): array
+{
+    $start = \strpos($css, $marker);
+
+    if ($start === false) {
+        return [];
+    }
+
+    $from = $start + \strlen($marker);
+    $end = \strpos($css, '*/', $from);
+    $text = $end === false ? \substr($css, $from) : \substr($css, $from, $end - $from);
+
+    $words = [];
+
+    foreach (\explode(' ', \trim(\str_replace(["\r", "\n", "\t"], ' ', $text))) as $word) {
+        if ($word !== '') {
+            $words[] = $word;
+        }
+    }
+
+    return $words;
+}
+
+function fake_read(?string $path): string
+{
+    if ($path === null || !\is_file($path)) {
+        return '';
+    }
+
+    $contents = \file_get_contents($path);
+
+    return $contents === false ? '' : $contents;
+}
+
+$argvIn = $argv;
+\array_shift($argvIn);
+
+$options = ['-i' => null, '-o' => null, '--cwd' => null];
+$minify = false;
+
+for ($i = 0, $n = \count($argvIn); $i < $n; ++$i) {
+    $arg = $argvIn[$i];
+
+    if ($arg === '--minify') {
+        $minify = true;
+
+        continue;
+    }
+
+    if (\array_key_exists($arg, $options) && isset($argvIn[$i + 1])) {
+        $options[$arg] = $argvIn[$i + 1];
+        ++$i;
+    }
+}
+
+$cwd = \is_string($options['--cwd']) ? $options['--cwd'] : null;
+$input = fake_read(\is_string($options['-i']) ? $options['-i'] : null);
+$candidatesText = fake_read($cwd === null ? null : $cwd . '/candidates.txt');
+
+if ($cwd !== null && \is_dir($cwd)) {
+    // getenv() rather than $_ENV: the CLI SAPI's default variables_order has no
+    // "E", so $_ENV is empty and an assertion against it would pass vacuously.
+    $record = [
+        'argv' => $argv,
+        'env' => \getenv(),
+        'input' => $input,
+        'candidates' => $candidatesText,
+        'cwd' => $cwd,
+        'cwd_mode' => \sprintf('%04o', \fileperms($cwd) & 0777),
+        'minify' => $minify,
+        // Written *before* any sleep, so a timeout test can identify this exact
+        // process instead of counting interpreters machine-wide. A global count
+        // is wrong the moment anything else on the host starts a PHP process —
+        // and it did fail that way once during review.
+        'pid' => \getmypid(),
+    ];
+
+    $encoded = \json_encode($record, \JSON_UNESCAPED_SLASHES);
+
+    \file_put_contents(
+        \dirname($cwd) . '/' . \basename($cwd) . '.argv.json',
+        \is_string($encoded) ? $encoded : '{}'
+    );
+}
+
+// Markers, checked before anything is produced. `fail-silent` first: it is a
+// prefix away from `fail`, and the more specific instruction has to win.
+if (\strpos($input, 'fake: fail-silent') !== false) {
+    \fwrite(\STDERR, "something went wrong in a way nobody parses\n");
+
+    exit(2);
+}
+
+// A colourising binary, which is what a real CLI does when it thinks it has a
+// terminal. The escape sequences sit around the word `Error:` itself, so a
+// parser that matches before stripping them classifies an ordinary compile error
+// as an infrastructure failure and throws. The long line and the lone CR are
+// here for the same round of assertions: one exercises the message cap, the
+// other the control-byte scrub (a bare CR rewrites a terminal line and can forge
+// what looks like a separate log entry).
+$ansiFail = fake_words($input, 'fake: fail-ansi');
+
+if ($ansiFail !== []) {
+    \fwrite(
+        \STDERR,
+        "\x1b[31mError:\x1b[0m coloured problem at input.css:1:1\n"
+        . "Error: " . \str_repeat('x', 200000) . "\n"
+        . "Error: forged\rlog line\n"
+    );
+
+    exit((int) $ansiFail[0]);
+}
+
+$fail = fake_words($input, 'fake: fail');
+
+if ($fail !== []) {
+    \fwrite(\STDERR, "Error: Unexpected token at input.css:3:1\nError: second problem\n");
+
+    exit((int) $fail[0]);
+}
+
+$sleep = fake_words($input, 'fake: sleep');
+
+if ($sleep !== []) {
+    \sleep((int) $sleep[0]);
+}
+
+if (\strpos($input, 'fake: garbage') !== false) {
+    // Exit cleanly having written nothing: the compiler must notice the missing
+    // output rather than returning an empty stylesheet.
+    exit(0);
+}
+
+// A hostile binary planting a link where its output belongs, so the caller's
+// read follows it out of the temp directory (T-14). A **hard** link where the
+// platform allows one, because `is_link()` does not report those — a check that
+// only asked `is_link()` would pass the test while the hole stayed open.
+$linkTarget = fake_words($input, 'fake: link-output');
+
+if ($linkTarget !== [] && \is_string($options['-o'])) {
+    $target = $linkTarget[0];
+
+    if (\DIRECTORY_SEPARATOR === '\\') {
+        // mklink is a cmd builtin, so it needs cmd /c; /H is a hard link.
+        \exec(\sprintf('cmd /c mklink /H "%s" "%s" 2>NUL', $options['-o'], $target));
+    } else {
+        @\link($target, $options['-o']);
+    }
+
+    // Fall back to a symlink where hard links are not permitted, so the test
+    // still exercises *a* link rather than silently passing.
+    if (!\file_exists($options['-o'])) {
+        @\symlink($target, $options['-o']);
+    }
+
+    exit(0);
+}
+
+$css = "/* fake-tailwindcss */\n";
+
+foreach (\explode(' ', \trim(\str_replace(["\r", "\n", "\t"], ' ', $candidatesText))) as $candidate) {
+    if ($candidate !== '') {
+        $css .= \sprintf(".%s{--fake:1}\n", $candidate);
+    }
+}
+
+if ($minify) {
+    $css = \str_replace("\n", '', $css);
+}
+
+if (\is_string($options['-o'])) {
+    \file_put_contents($options['-o'], $css);
+}
+
+exit(0);

@@ -9,4 +9,15 @@ parameters:
         # `composer tools:install`; not our code.
         - tools/php-cs-fixer
     treatPhpDocTypesAsCertain: false
-    ignoreErrors: []
+    ignoreErrors:
+        # proc_open() accepts an argument array from PHP 7.4, which is what
+        # removes the shell and with it the question of shell injection
+        # (T-03, design doc 06). Cli\Process uses the array form when the
+        # runtime supports it and falls back to an escapeshellarg()-joined
+        # string on the 7.3 floor. Analysis is pinned to phpVersion 70300,
+        # where the array form is genuinely a type error, so PHPStan is right
+        # and the code is right; only the two cannot be reconciled. Narrow on
+        # purpose: one message, one path.
+        -
+            message: '#^Parameter \#1 \$command of function proc_open expects string, list<string>\|string given\.$#'
+            path: src/Compiler/Cli/Process.php

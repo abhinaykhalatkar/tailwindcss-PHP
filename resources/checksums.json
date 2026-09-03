@@ -1,0 +1,10 @@
+{
+  "4.1.18": {
+    "linux-x64": "737becf8d4ad1115ea98df69fa94026d402ca8feb91306a035b5b004167da8dd",
+    "linux-x64-musl": "23ccf6c95db9161e4dbff19b5a2d4bb3be12d40067e2d0463ba794b0d9d1bd66",
+    "linux-arm64": "7a7702db6c93718a9b6655d455304edda18600f5a4f195242342ed3b5b70ebe8",
+    "macos-x64": "1e8a77fd796a3a4aa3d8727887de926ef9d38477aba113fd7c32c0d31a32a3ab",
+    "macos-arm64": "7f27711dceac1a580b6ad58ddac46e59202c85a6c16f2f08f6fdcdee261008e1",
+    "windows-x64.exe": "55bc5a2e294520a74fe3523eaa11915ef50047e7228a545aa181ec413cf52612"
+  }
+}

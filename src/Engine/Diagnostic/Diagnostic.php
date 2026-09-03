@@ -44,9 +44,11 @@ final class Diagnostic
     public const W_CANDIDATE_LIMIT = 'W_CANDIDATE_LIMIT';
     public const W_FILE_TOO_LARGE = 'W_FILE_TOO_LARGE';
     public const W_BINARY_SKIPPED = 'W_BINARY_SKIPPED';
+    public const W_FILE_UNREADABLE = 'W_FILE_UNREADABLE';
     public const W_ROOT_MISSING = 'W_ROOT_MISSING';
     public const W_MANIFEST_CORRUPT = 'W_MANIFEST_CORRUPT';
     public const W_CHECKSUM_UNKNOWN = 'W_CHECKSUM_UNKNOWN';
+    public const W_SOURCE_IGNORED = 'W_SOURCE_IGNORED';
 
     public const I_DRIVER_SELECTED = 'I_DRIVER_SELECTED';
 
@@ -72,9 +74,11 @@ final class Diagnostic
         self::W_CANDIDATE_LIMIT,
         self::W_FILE_TOO_LARGE,
         self::W_BINARY_SKIPPED,
+        self::W_FILE_UNREADABLE,
         self::W_ROOT_MISSING,
         self::W_MANIFEST_CORRUPT,
         self::W_CHECKSUM_UNKNOWN,
+        self::W_SOURCE_IGNORED,
         self::I_DRIVER_SELECTED,
     ];
 

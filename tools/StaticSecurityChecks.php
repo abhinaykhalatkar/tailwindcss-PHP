@@ -86,9 +86,24 @@ final class StaticSecurityChecks
      * Request state is read only by the console (which has no request) and by
      * the one class whose job is to parse `$_SERVER` (T-09).
      *
+     * `Compiler/Cli/Environment.php` is the third entry and the narrowest.
+     * `Environment::childEnvironment()` calls `getenv()` for exactly two names —
+     * `SystemRoot` and `PATHEXT` — and only on Windows. Those are machine
+     * variables the operating system sets at boot: no request can set or
+     * influence them, which is the line T-09 actually draws (it is about
+     * request-derived state, not about the environment as such). `SystemRoot` is
+     * not optional either — `cmd.exe` cannot execute a `.cmd` binary without it
+     * and exits 1 with empty stdout and stderr, and `.cmd` is a supported binary
+     * form (CCP-A22/A23). Neither value is ever interpolated into a command
+     * line; both become environment entries for the child and nothing else.
+     *
      * @var list<string>
      */
-    private const SUPERGLOBAL_ALLOWED = ['Console/', 'Http/ServerRequest.php'];
+    private const SUPERGLOBAL_ALLOWED = [
+        'Console/',
+        'Http/ServerRequest.php',
+        'Compiler/Cli/Environment.php',
+    ];
 
     /**
      * The single opt-in, CLI-only download path (T-18, T-04).
