@@ -102,6 +102,34 @@ final class Hash
     }
 
     /**
+     * Lowercase hex SHA-256 of `implode("\n", $lines)`, computed incrementally.
+     *
+     * Used for the candidate-set hash (design doc 09 §Per-file cache, design doc
+     * 13 §Snapshot and scan #14): the union can be tens of thousands of strings,
+     * and building one giant string just to hash it would double the peak
+     * memory for no benefit, so the separator is fed to the running digest
+     * instead of being materialised.
+     *
+     * @param list<string> $lines
+     */
+    public static function sha256Lines(array $lines): string
+    {
+        $context = \hash_init('sha256');
+        $first = true;
+
+        foreach ($lines as $line) {
+            if (!$first) {
+                \hash_update($context, "\n");
+            }
+
+            \hash_update($context, $line);
+            $first = false;
+        }
+
+        return \hash_final($context);
+    }
+
+    /**
      * Constant-time digest comparison.
      *
      * Always use this for a checksum or any other attacker-influenced value: a

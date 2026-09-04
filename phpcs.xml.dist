@@ -13,6 +13,8 @@
     <exclude-pattern>vendor</exclude-pattern>
     <!-- php-cs-fixer keeps its own manifest and vendor tree here; not our code. -->
     <exclude-pattern>tools/php-cs-fixer/*</exclude-pattern>
+    <!-- Extractor fixtures are real-world Twig/Blade/Vue/JS/JSON samples, not PHP to lint. -->
+    <exclude-pattern>tests/Fixtures/*</exclude-pattern>
 
     <rule ref="PSR12"/>
 </ruleset>

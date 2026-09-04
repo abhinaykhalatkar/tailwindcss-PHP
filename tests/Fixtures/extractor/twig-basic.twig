@@ -1,0 +1,11 @@
+{# Header partial #}
+<nav class="flex items-center justify-between p-4 bg-white shadow-md">
+    <a href="/" class="text-xl font-bold text-gray-900">Logo</a>
+    <ul class="flex gap-4">
+        {% for item in menu %}
+            <li class="hover:text-blue-500 md:inline-block {{ item.active ? 'text-blue-600 font-semibold' : '' }}">
+                <a href="{{ item.url }}">{{ item.label }}</a>
+            </li>
+        {% endfor %}
+    </ul>
+</nav>

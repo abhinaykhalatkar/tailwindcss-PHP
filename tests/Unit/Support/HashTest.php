@@ -188,6 +188,47 @@ final class HashTest extends TestCase
         Hash::sha256Stream($stream);
     }
 
+    /**
+     * @test
+     *
+     * @dataProvider linesCases
+     *
+     * @param list<string> $lines
+     */
+    public function sha256LinesMatchesTheImplodedEquivalent(array $lines): void
+    {
+        self::assertSame(Hash::sha256(\implode("\n", $lines)), Hash::sha256Lines($lines));
+    }
+
+    /**
+     * @return array<string, array{0: list<string>}>
+     */
+    public static function linesCases(): array
+    {
+        return [
+            'empty' => [[]],
+            'single line' => [['flex']],
+            'multiple lines' => [['flex', 'p-4', 'md:grid']],
+            'a line containing a newline' => [["a\nb", 'c']],
+            'empty lines' => [['', '', '']],
+            'many lines' => [\array_map(static function (int $i): string {
+                return 'candidate-' . $i;
+            }, \range(1, 500))],
+        ];
+    }
+
+    /** @test */
+    public function sha256LinesOfAnEmptyArrayIsTheEmptyDigest(): void
+    {
+        self::assertSame(self::EMPTY_DIGEST, Hash::sha256Lines([]));
+    }
+
+    /** @test */
+    public function sha256LinesOfASingleLineIsItsOwnDigest(): void
+    {
+        self::assertSame(self::ABC_DIGEST, Hash::sha256Lines(['abc']));
+    }
+
     /** @test */
     public function equalsComparesDigests(): void
     {
