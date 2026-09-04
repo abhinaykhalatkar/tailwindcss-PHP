@@ -21,7 +21,7 @@ jobs:
     name: Lint (PHP 7.3 floor)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -36,7 +36,7 @@ jobs:
     name: Static analysis (PHP 8.3)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -103,7 +103,7 @@ jobs:
             deps: 'highest'
             restricted: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # disable_functions is NOT set here: it would also disable Composer, which needs
       # proc_open. It is applied to the PHPUnit process only, in the test step below.
@@ -148,7 +148,7 @@ jobs:
     name: Security
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -181,7 +181,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
