@@ -1,0 +1,6 @@
+@import "tailwindcss";
+@import "./partials/base.css";
+
+.entry {
+    color: red;
+}
