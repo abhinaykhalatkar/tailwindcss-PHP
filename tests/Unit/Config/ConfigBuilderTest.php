@@ -7,6 +7,8 @@ namespace TailwindPhp\Tests\Unit\Config;
 use PHPUnit\Framework\TestCase;
 use TailwindPhp\Config\ConfigBuilder;
 use TailwindPhp\Exception\ConfigurationException;
+use TailwindPhp\PreProcessor\PreProcessorInterface;
+use TailwindPhp\PreProcessor\PreProcessResult;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -1161,6 +1163,54 @@ final class ConfigBuilderTest extends TestCase
             'input extension' => [['input_extensions' => ["css\n"]]],
             'source extension' => [['source_extensions' => ["twig\n"]]],
         ];
+    }
+
+    /**
+     * A `preprocessor` class that exists but does not implement the interface
+     * is a configuration mistake, and is reported as one (TASK-0015 acceptance
+     * 5, closing the deferred note from TASK-0008 round 1).
+     *
+     * It used to pass validation and fail later inside the compile transaction
+     * as a `TypeError` — an infrastructure error raised for what is a plain
+     * typo in a config file, at the point where it is hardest to diagnose.
+     *
+     * @test
+     */
+    public function apreprocessorClassMustImplementTheInterface(): void
+    {
+        try {
+            $this->build(['preprocessor' => \stdClass::class]);
+
+            self::fail('A class that does not implement the interface was accepted.');
+        } catch (ConfigurationException $e) {
+            self::assertStringContainsString('preprocessor', $e->getMessage());
+            // The interface is named, because "must implement the interface"
+            // without saying which one sends the reader to the source.
+            self::assertStringContainsString(PreProcessorInterface::class, $e->getMessage());
+        }
+    }
+
+    /**
+     * A class that *does* implement it is accepted — without this the row above
+     * could pass by rejecting every class.
+     *
+     * @test
+     */
+    public function apreprocessorClassImplementingTheInterfaceIsAccepted(): void
+    {
+        // Anonymous, so this file keeps exactly one named class (phpcs) and
+        // the double stays next to the assertion that needs it —
+        // `tests/Support/**` is out of scope for this task bar CountingCompiler.
+        $acceptable = \get_class(new class () implements PreProcessorInterface {
+            public function process(string $entryText, string $entryRelPath): PreProcessResult
+            {
+                return new PreProcessResult($entryText, []);
+            }
+        });
+
+        $config = $this->build(['preprocessor' => $acceptable]);
+
+        self::assertSame($acceptable, $config->bundle('styles')->preprocessor());
     }
 
     // ------------------------------------------------------------ helpers

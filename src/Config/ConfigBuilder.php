@@ -7,6 +7,7 @@ namespace TailwindPhp\Config;
 use Psr\Log\LoggerInterface;
 use TailwindPhp\Exception\ConfigurationException;
 use TailwindPhp\Exception\PathException;
+use TailwindPhp\PreProcessor\PreProcessorInterface;
 use TailwindPhp\Support\Hash;
 use TailwindPhp\Support\Json;
 use TailwindPhp\Support\Path;
@@ -665,6 +666,28 @@ final class ConfigBuilder
 
         if (!\class_exists($value)) {
             $problems[] = \sprintf('Key "%s": class "%s" does not exist.', $path, self::safe($value));
+
+            return;
+        }
+
+        // The deferred note from TASK-0008 round 1, closed here (TASK-0015
+        // acceptance 5). A class that exists but does not implement the
+        // interface used to pass configuration and fail later inside the
+        // compile transaction as a TypeError — an infrastructure error for what
+        // is a plain configuration mistake. The message names the interface,
+        // because "must implement the interface" without saying which one sends
+        // the reader to the source.
+        //
+        // `is_subclass_of()` with an interface name is the right test rather
+        // than `in_array(..., class_implements())`: it also accepts a class that
+        // inherits the implementation from a parent.
+        if (!\is_subclass_of($value, PreProcessorInterface::class)) {
+            $problems[] = \sprintf(
+                'Key "%s": class "%s" must implement %s.',
+                $path,
+                self::safe($value),
+                PreProcessorInterface::class
+            );
         }
     }
 
