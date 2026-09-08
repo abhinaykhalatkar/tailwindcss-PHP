@@ -8,6 +8,7 @@ use TailwindPhp\Console\Command\BuildCommand;
 use TailwindPhp\Console\Command\CandidatesCommand;
 use TailwindPhp\Console\Command\ClearCommand;
 use TailwindPhp\Console\Command\CommandInterface;
+use TailwindPhp\Console\Command\DoctorCommand;
 use TailwindPhp\Console\Command\UrlCommand;
 use TailwindPhp\Exception\ConfigurationException;
 use TailwindPhp\Exception\ConsoleException;
@@ -56,12 +57,13 @@ final class Application
     public function __construct(?array $commands = null)
     {
         if ($commands === null) {
-            // `doctor` and `install-cli` are not in this list yet — see the
-            // TASK-0019 report. Registering a command whose class does not
-            // exist would take the whole CLI down, including `--help`.
+            // `install-cli` is not in this list yet — see the TASK-0019 report.
+            // Registering a command whose class does not exist would take the
+            // whole CLI down, including `--help`.
             $commands = [
                 new BuildCommand(),
                 new ClearCommand(),
+                new DoctorCommand(),
                 new UrlCommand(),
                 new CandidatesCommand(),
             ];
