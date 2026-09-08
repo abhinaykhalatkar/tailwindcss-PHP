@@ -183,6 +183,16 @@ final class Environment implements EnvironmentInterface
             return $environment;
         }
 
+        // Windows spells the temporary directory `TEMP`/`TMP`, not `TMPDIR`, and
+        // the official binary is a Bun executable that unpacks its native
+        // modules there before it can start: without these two it fails with
+        // "LoadLibrary failed: The specified module could not be found"
+        // (measured against tailwindcss-windows-x64.exe 4.1.18; CCP-A36). They
+        // point at the same private directory as `TMPDIR`, so nothing the
+        // child writes lands outside the space this class controls.
+        $environment['TEMP'] = $tmpDir;
+        $environment['TMP'] = $tmpDir;
+
         foreach (self::WINDOWS_MACHINE_VARS as $name) {
             $value = \getenv($name);
 

@@ -309,6 +309,27 @@ final class EnvironmentTest extends TestCase
     }
 
     /**
+     * On Windows the temporary directory is spelled `TEMP`/`TMP`, and the
+     * official binary (a Bun executable) unpacks its native modules there
+     * before it can run. Both point at the private directory, never at the
+     * web server's temp (CCP-A36; found live in test-project step T1).
+     *
+     * @test
+     */
+    public function onWindowsTheChildEnvironmentCarriesTempAndTmp(): void
+    {
+        if (\DIRECTORY_SEPARATOR === '/') {
+            self::markTestSkipped('TEMP and TMP are Windows spellings.');
+        }
+
+        $environment = $this->environment()->childEnvironment('C:/temp/example');
+
+        self::assertSame('C:/temp/example', $environment['TEMP']);
+        self::assertSame('C:/temp/example', $environment['TMP']);
+        self::assertSame($environment['TMPDIR'], $environment['TEMP']);
+    }
+
+    /**
      * Whatever else is in this process's environment stays in it. Without this,
      * "the child inherits nothing" would rest on reading the implementation.
      *

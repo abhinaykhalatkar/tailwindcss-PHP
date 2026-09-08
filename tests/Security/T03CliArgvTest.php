@@ -40,6 +40,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * Read from the fixture's `<cacheDir>/<name>.argv.json` record: the temp
  * directory is removed in a `finally`, so by the time `compile()` returns there
  * is nothing left to inspect except what the child wrote down.
+ *
+ * @covers-requirement NFR-SEC-2
  */
 final class T03CliArgvTest extends TestCase
 {
@@ -244,6 +246,11 @@ final class T03CliArgvTest extends TestCase
         self::assertSame('1', $env['NO_COLOR'] ?? '');
         self::assertSame($directory, $env['HOME'] ?? '');
         self::assertSame($directory, $env['TMPDIR'] ?? '');
+
+        if (\DIRECTORY_SEPARATOR !== '/') {
+            self::assertSame($directory, $env['TEMP'] ?? '', 'TEMP must be the private directory (CCP-A36)');
+            self::assertSame($directory, $env['TMP'] ?? '', 'TMP must be the private directory (CCP-A36)');
+        }
     }
 
     // --------------------------------------------------------------- driving
@@ -310,6 +317,9 @@ final class T03CliArgvTest extends TestCase
             $keys[] = 'PATHEXT';
             $keys[] = 'COMSPEC';
             $keys[] = 'PROMPT';
+            // CCP-A36: the Windows spelling of the private temp dir, never the server's.
+            $keys[] = 'TEMP';
+            $keys[] = 'TMP';
         }
 
         return $keys;
