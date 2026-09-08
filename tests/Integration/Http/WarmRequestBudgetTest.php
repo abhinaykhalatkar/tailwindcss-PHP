@@ -20,7 +20,7 @@ use TailwindPhp\Tests\Support\TempTree;
  * {@see self::TOTAL_CEILING}. A budget nobody fails is a budget nobody keeps;
  * a budget the suite fails is not a budget either.
  *
- * @covers-requirement NFR-PERF-1
+ * @covers-requirement NFR-PERF-1 FR-PIPE-2
  */
 final class WarmRequestBudgetTest extends TestCase
 {

@@ -16,6 +16,8 @@ use TailwindPhp\Pipeline\ErrorRenderer;
  * deliberate: it is CSS served to a browser, so a stray quote or a missing
  * escape is not a formatting nit but a broken stylesheet — and a body that
  * merely "contains" the right words can still be unparseable.
+ *
+ * @covers-requirement FR-ERR-1 FR-ERR-3
  */
 final class ErrorRendererTest extends TestCase
 {

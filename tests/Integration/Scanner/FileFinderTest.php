@@ -14,6 +14,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * Real temporary directories throughout (design doc 16 §Integration test
  * conventions): {@see FileFinder} walks the filesystem via SPL iterators, so
  * a fake root would not exercise the extension/ignore/symlink logic at all.
+ *
+ * @covers-requirement FR-FRESH-2
  */
 final class FileFinderTest extends TestCase
 {

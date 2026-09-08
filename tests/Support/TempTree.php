@@ -99,8 +99,15 @@ final class TempTree
      */
     public static function registerShutdownCleanup(string $dir): void
     {
-        \register_shutdown_function(static function () use ($dir): void {
-            self::remove($dir);
+        // Pid-guarded: a test that pcntl_fork()s copies this hook into every
+        // child, and a child's exit() must not delete the fixture the parent
+        // and its siblings are still using (ColdCacheForkTest).
+        $owner = \getmypid();
+
+        \register_shutdown_function(static function () use ($dir, $owner): void {
+            if (\getmypid() === $owner) {
+                self::remove($dir);
+            }
         });
     }
 

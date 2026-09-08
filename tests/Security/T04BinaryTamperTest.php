@@ -38,6 +38,8 @@ use TailwindPhp\Tests\Support\TempTree;
  *
  * The control case is what keeps the rest honest: if the genuine binary did not
  * run, every "it did not run" assertion below would pass for the wrong reason.
+ *
+ * @covers-requirement NFR-SEC-3
  */
 final class T04BinaryTamperTest extends TestCase
 {

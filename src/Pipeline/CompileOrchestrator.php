@@ -215,6 +215,18 @@ final class CompileOrchestrator
             // and its manifest — not the one this request loaded — is what
             // `prune()` must protect and what a later failure falls back to.
             $previous = $reloaded;
+        } elseif ($previous === null) {
+            // The fast path has the same race in miniature: this request loaded
+            // no manifest, and a winner may have published one and released the
+            // lock in the gap before tryAcquire() succeeded. Rebuilding would be
+            // a second compile of the same content (I3), so look once more.
+            $reloaded = $this->reload($name);
+
+            if ($reloaded !== null && $this->isUsable($reloaded, $name)) {
+                $lock->release();
+
+                return $this->serve($reloaded, $name, 'cached');
+            }
         }
 
         try {

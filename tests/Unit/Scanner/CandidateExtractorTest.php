@@ -17,6 +17,8 @@ use TailwindPhp\Scanner\ExtractorInterface;
  * Each row therefore documents the algorithm's actual, spec-following
  * behaviour rather than an aspirational one; where a row looks surprising the
  * inline category comment explains why.
+ *
+ * @covers-requirement FR-SCAN-2 NFR-SEC-6
  */
 final class CandidateExtractorTest extends TestCase
 {

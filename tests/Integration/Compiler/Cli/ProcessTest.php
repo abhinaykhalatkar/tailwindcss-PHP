@@ -20,6 +20,8 @@ use TailwindPhp\Tests\Support\TempTree;
  *
  * The fixture is a small PHP script rather than a shell script, so the same
  * tests run on Windows and POSIX without a second implementation.
+ *
+ * @covers-requirement FR-COMP-3 NFR-SEC-2
  */
 final class ProcessTest extends TestCase
 {

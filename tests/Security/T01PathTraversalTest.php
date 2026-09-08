@@ -19,6 +19,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * warning or a silently wrong path, and that T-14 (a cache directory that
  * resolves outside the project through a link) is caught here rather than at
  * first write.
+ *
+ * @covers-requirement NFR-SEC-1
  */
 final class T01PathTraversalTest extends TestCase
 {

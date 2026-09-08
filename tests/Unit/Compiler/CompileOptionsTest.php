@@ -8,6 +8,9 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use TailwindPhp\Compiler\CompileOptions;
 
+/**
+ * @covers-requirement FR-COMP-1
+ */
 final class CompileOptionsTest extends TestCase
 {
     /** @test */

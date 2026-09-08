@@ -9,6 +9,9 @@ use ReflectionClass;
 use TailwindPhp\Scanner\CandidateSet;
 use TailwindPhp\Support\Hash;
 
+/**
+ * @covers-requirement FR-SCAN-5
+ */
 final class CandidateSetTest extends TestCase
 {
     /** @test */

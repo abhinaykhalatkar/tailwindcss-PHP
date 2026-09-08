@@ -9,6 +9,9 @@ use TailwindPhp\Freshness\FileSnapshot;
 use TailwindPhp\Freshness\StalenessChecker;
 use TailwindPhp\Freshness\StalenessReport;
 
+/**
+ * @covers-requirement FR-FRESH-1
+ */
 final class StalenessCheckerTest extends TestCase
 {
     /** @test */

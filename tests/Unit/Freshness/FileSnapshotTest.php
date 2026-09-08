@@ -8,6 +8,9 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use TailwindPhp\Freshness\FileSnapshot;
 
+/**
+ * @covers-requirement FR-FRESH-1
+ */
 final class FileSnapshotTest extends TestCase
 {
     /** @test */

@@ -24,6 +24,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * but says why. And the **warm-path cost**: with a cached probe this must be
  * one `stat()` and nothing else, because re-hashing a hundred-megabyte binary
  * per request would be the most expensive thing the library does.
+ *
+ * @covers-requirement FR-COMP-4
  */
 final class DriverResolverTest extends TestCase
 {

@@ -39,6 +39,8 @@ use TailwindPhp\Version;
  * the 500 and the debug overlay. The successful 200 is included as a control.
  *
  * @covers-requirement NFR-SEC-5
+ *
+ * @covers-requirement FR-ERR-3
  */
 final class T06InfoDisclosureTest extends TestCase
 {

@@ -22,6 +22,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * `$_POST`, `$_COOKIE`, `$_REQUEST` and `getenv()` anywhere outside `Console/`
  * and `Http\ServerRequest`. This test is the behavioural half — it poisons every
  * channel an attacker controls and asserts none of them moves the flag.
+ *
+ * @covers-requirement NFR-SEC-5
  */
 final class T09DebugFromRequestTest extends TestCase
 {

@@ -17,6 +17,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * 09 §File discovery). Windows has no unprivileged *file* symlink, only
  * directory junctions; see {@see self::aJunctionOnWindowsIsNotDescended()}
  * for what this host actually does with one (not what CSF-A17 assumed).
+ *
+ * @covers-requirement FR-SCAN-6 NFR-SEC-1
  */
 final class T14SymlinkTest extends TestCase
 {

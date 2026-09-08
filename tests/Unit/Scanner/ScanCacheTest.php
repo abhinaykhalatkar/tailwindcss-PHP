@@ -11,6 +11,9 @@ use TailwindPhp\Scanner\PrePassInterface;
 use TailwindPhp\Scanner\ScanCache;
 use TailwindPhp\Support\FilesystemInterface;
 
+/**
+ * @covers-requirement FR-SCAN-3
+ */
 final class ScanCacheTest extends TestCase
 {
     /** @test */

@@ -34,6 +34,8 @@ use TailwindPhp\Http\ServerRequest;
  * lone control bytes into a newline.
  *
  * @covers-requirement NFR-SEC-7
+ *
+ * @covers-requirement NFR-SEC-9
  */
 final class T10HeaderInjectionTest extends TestCase
 {

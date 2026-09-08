@@ -71,7 +71,6 @@ jobs:
 
       # Informational until M4, then --strict.
       - name: Requirements traceability report
-        if: hashFiles('tools/requirements-report.php') != ''
         continue-on-error: true
         run: php tools/requirements-report.php --check
 
@@ -144,6 +143,27 @@ jobs:
         if: matrix.php == '8.3' && matrix.deps == 'highest' && !matrix.restricted && hashFiles('tools/coverage-check.php') != ''
         run: composer test:coverage
 
+  bench:
+    name: Benchmarks (PHP 8.3, opcache)
+    runs-on: ubuntu-latest
+    # Budgets are asserted (TAILWINDPHP_BENCH=1) but do not fail the build until M4.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: json, zlib
+          ini-values: opcache.enable_cli=1
+          coverage: none
+
+      - name: Install dependencies
+        run: composer update --no-interaction --no-progress
+
+      - name: Run the benchmark suite
+        run: TAILWINDPHP_BENCH=1 composer bench
+
   security:
     name: Security
     runs-on: ubuntu-latest
@@ -175,38 +195,3 @@ jobs:
       - name: Static security checks
         if: hashFiles('tools/static-security-checks.php') != ''
         run: php tools/static-security-checks.php
-
-  bench-pr:
-    name: Benchmarks (PR)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          ini-values: opcache.enable_cli=1
-          coverage: none
-
-      - name: Resolve Composer cache directory
-        id: composer-cache
-        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Composer downloads
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-composer-8.3-highest-${{ hashFiles('composer.json') }}
-          restore-keys: ${{ runner.os }}-composer-8.3-
-
-      - name: Install dependencies
-        run: composer update --no-interaction --no-progress
-
-      - name: Run benchmarks
-        run: composer bench
-        env:
-          BENCH_TOLERANCE: '1.25'
-
-      # The sticky Markdown table comment (design doc 20 § ci.yml) is added in M1
-      # together with the benchmark report script.

@@ -21,6 +21,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * Threat T05 (design doc 12): every scanner bound must actually stop the
  * work it is supposed to bound, and the extractor must stay linear-time even
  * on a large file. One test per `limits.*` this milestone's classes enforce.
+ *
+ * @covers-requirement FR-SCAN-4
  */
 final class T05LimitsTest extends TestCase
 {

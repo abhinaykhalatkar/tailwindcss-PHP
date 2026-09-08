@@ -20,6 +20,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * A real temporary directory is used rather than an in-memory double: `prune()`
  * and `clear()` are built on `scandir()` and mtimes, and a double would only
  * restate the implementation.
+ *
+ * @covers-requirement FR-CACHE-1 FR-CACHE-8
  */
 final class CacheStoreTest extends TestCase
 {

@@ -15,6 +15,8 @@ use TailwindPhp\Scanner\CharClass;
  * point of the control is "no catastrophic blow-up", and a budget generous
  * enough to hold on an un-JIT-ed interpreter still catches an accidental
  * quadratic/exponential regression, which is what this test exists to catch.
+ *
+ * @covers-requirement NFR-SEC-7
  */
 final class T12RegexDosTest extends TestCase
 {

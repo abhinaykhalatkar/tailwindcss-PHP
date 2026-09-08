@@ -12,6 +12,8 @@ use TailwindPhp\Config\Defaults;
  * The defaults table is the single source of both the default values and the
  * set of legal top-level keys, so each documented default is asserted by value
  * rather than by shape: a silent change here changes every consuming project.
+ *
+ * @covers-requirement FR-PIPE-4
  */
 final class DefaultsTest extends TestCase
 {

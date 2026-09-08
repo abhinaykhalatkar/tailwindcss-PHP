@@ -10,6 +10,9 @@ use TailwindPhp\Compiler\CompileResult;
 use TailwindPhp\Engine\Diagnostic\Diagnostic;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
 
+/**
+ * @covers-requirement FR-COMP-1
+ */
 final class CompileResultTest extends TestCase
 {
     /** @test */

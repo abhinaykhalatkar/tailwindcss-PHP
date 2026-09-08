@@ -19,6 +19,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * a bad config reports **every** problem at once rather than the first, and
  * types are checked strictly so a quoted integer is a failure rather than a
  * silent coercion.
+ *
+ * @covers-requirement FR-PIPE-4 NFR-SEC-1 FR-COMP-5
  */
 final class ConfigBuilderTest extends TestCase
 {

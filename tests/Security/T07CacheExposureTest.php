@@ -26,6 +26,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * The "only whitelisted names" assertion is the one that keeps working as the
  * code grows. A future feature that writes a scratch file into the cache
  * directory fails this test rather than quietly publishing something.
+ *
+ * @covers-requirement FR-CACHE-5 NFR-SEC-4
  */
 final class T07CacheExposureTest extends TestCase
 {

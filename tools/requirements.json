@@ -1,0 +1,307 @@
+{
+  "_note": "Generated from the planning requirements table (doc 02). FR rows keep their priority column. The NFR tables have no priority column: NFR-SEC rows are recorded as MUST because the M1 gate (doc 23) requires them covered; the other NFR groups are recorded as SHOULD until M4 makes them gates.",
+  "FR-PIPE-1": {
+    "level": "MUST",
+    "title": "Given a route string, the library either produces a CSS asset (content, content type, hash, headers) or reports \"not my route\"."
+  },
+  "FR-PIPE-2": {
+    "level": "MUST",
+    "title": "The constructor / factory performs no I/O. All work happens in explicit method calls so callers can control timing and error handling."
+  },
+  "FR-PIPE-3": {
+    "level": "MUST",
+    "title": "A legacy adapter exposes getContent(): string and getContentType(): string and does the work in its constructor, matching the legacy handler contract exactly (new StyleSheet($debug, $path))."
+  },
+  "FR-PIPE-4": {
+    "level": "MUST",
+    "title": "The entry CSS file is configurable and defaults to assets/styles/main.css."
+  },
+  "FR-PIPE-5": {
+    "level": "SHOULD",
+    "title": "An optional pre-processor stage transforms the entry file before Tailwind (SCSS via scssphp)."
+  },
+  "FR-PIPE-6": {
+    "level": "MAY",
+    "title": "Multiple named bundles (e.g. admin and public) with independent caches."
+  },
+  "FR-FRESH-1": {
+    "level": "MUST",
+    "title": "A rebuild is triggered when any watched file's mtime or size changes, when a watched file is added, or when one is removed."
+  },
+  "FR-FRESH-2": {
+    "level": "MUST",
+    "title": "Watched files are: the entry CSS and everything it imports, all files under configured watch directories, and all files under configured sources roots matching the configured extensions."
+  },
+  "FR-FRESH-3": {
+    "level": "MUST",
+    "title": "If only source (template) files changed and the extracted candidate set is identical to the cached one, the cache is refreshed (touched) rather than recompiled."
+  },
+  "FR-FRESH-4": {
+    "level": "MUST",
+    "title": "In debug mode the cache validity check is skipped and the asset is rebuilt on every request. Per-file scan caches may still be used because they are keyed on content identity."
+  },
+  "FR-FRESH-5": {
+    "level": "MUST",
+    "title": "freeze: true disables staleness checks; the cache is only rebuilt by the console build command or when no cache exists."
+  },
+  "FR-FRESH-6": {
+    "level": "SHOULD",
+    "title": "check_interval: N seconds throttles the staleness scan to at most once per N seconds per bundle."
+  },
+  "FR-FRESH-7": {
+    "level": "MUST",
+    "title": "If a watched directory is missing but a cache exists, the stale cache is served (fail-soft). If no cache exists, a configuration error is raised."
+  },
+  "FR-FRESH-8": {
+    "level": "MUST",
+    "title": "A change in library version, driver, driver version, or effective configuration hash invalidates the cache."
+  },
+  "FR-CACHE-1": {
+    "level": "MUST",
+    "title": "Compiled CSS is stored on the local filesystem under a configurable cache directory."
+  },
+  "FR-CACHE-2": {
+    "level": "MUST",
+    "title": "Every write is atomic: write to a uniquely named temp file in the same directory, fsync is not required, then rename() over the target."
+  },
+  "FR-CACHE-3": {
+    "level": "MUST",
+    "title": "Concurrent requests never produce a torn read. At most one process compiles a given bundle at a time; others either wait (cold cache) or serve the previous version (warm cache)."
+  },
+  "FR-CACHE-4": {
+    "level": "MUST",
+    "title": "Metadata (content hash, fingerprint, candidate hash, per-file scan records, driver info, versions) is stored as JSON next to the CSS. Corrupt metadata is treated as \"no cache\"."
+  },
+  "FR-CACHE-5": {
+    "level": "MUST",
+    "title": "The cache directory is created on demand with 0755 (configurable) and receives a .htaccess (Require all denied / Deny from all) and an empty index.html when created."
+  },
+  "FR-CACHE-6": {
+    "level": "SHOULD",
+    "title": "A precompressed .css.gz sibling is written when ext-zlib is available."
+  },
+  "FR-CACHE-7": {
+    "level": "MUST",
+    "title": "Console clear removes all cache artefacts for a bundle or all bundles, and nothing else."
+  },
+  "FR-CACHE-8": {
+    "level": "SHOULD",
+    "title": "Old fingerprinted versions are pruned, keeping the last N (default 3) to serve straggling requests."
+  },
+  "FR-COMP-1": {
+    "level": "MUST",
+    "title": "A CompilerInterface accepts (entry CSS text, resolved import base path, candidate set, options) and returns CSS text plus diagnostics."
+  },
+  "FR-COMP-2": {
+    "level": "MUST",
+    "title": "PhpEngineCompiler implements Tailwind v4 semantics for the Tier-1 utility and variant catalogue in 08-php-engine-utility-catalog.md with no external process."
+  },
+  "FR-COMP-3": {
+    "level": "MUST",
+    "title": "StandaloneCliCompiler invokes the official standalone binary with -i/-o and --minify when requested, without a shell, with a timeout, capturing stderr."
+  },
+  "FR-COMP-4": {
+    "level": "MUST",
+    "title": "Driver auto selects CLI when a verified binary exists and process functions are available, otherwise PHP. cli and php force a driver and fail loudly if unavailable."
+  },
+  "FR-COMP-5": {
+    "level": "MUST",
+    "title": "Minification is on unless debug is on, overridable by config."
+  },
+  "FR-COMP-6": {
+    "level": "MUST",
+    "title": "The PHP engine reports unsupported directives (@plugin, @config) as errors with a message naming the CLI driver as the alternative."
+  },
+  "FR-COMP-7": {
+    "level": "SHOULD",
+    "title": "The PHP engine reports unknown utilities as warnings collected in diagnostics (never as fatal errors), matching Tailwind's behaviour of silently ignoring them."
+  },
+  "FR-SCAN-1": {
+    "level": "MUST",
+    "title": "Candidate extraction is pure text processing. No file is ever included, evaluated, or executed."
+  },
+  "FR-SCAN-2": {
+    "level": "MUST",
+    "title": "Extraction follows Tailwind v4's candidate heuristics closely enough that the conformance corpus in 16-testing-strategy.md matches."
+  },
+  "FR-SCAN-3": {
+    "level": "MUST",
+    "title": "Per-file extraction results are cached keyed on (path, mtime, size) so unchanged files are not re-read."
+  },
+  "FR-SCAN-4": {
+    "level": "MUST",
+    "title": "Files larger than limits.max_file_size are skipped with a warning; scanning stops with an error after limits.max_files; candidate sets are capped at limits.max_candidates."
+  },
+  "FR-SCAN-5": {
+    "level": "MUST",
+    "title": "safelist candidates are always included; blocklist candidates are always excluded."
+  },
+  "FR-SCAN-6": {
+    "level": "MUST",
+    "title": "Symbolic links pointing outside the configured roots are not followed."
+  },
+  "FR-SCAN-7": {
+    "level": "SHOULD",
+    "title": "@source directives in the entry CSS add roots; @source not excludes; @source inline(...) adds literal candidates (with brace expansion)."
+  },
+  "FR-HTTP-1": {
+    "level": "MUST",
+    "title": "Routes matched: the plain route (assets/styles.css) and the fingerprinted route (assets/styles.{fp}.css, fp = 8–16 lowercase hex). Nothing else."
+  },
+  "FR-HTTP-2": {
+    "level": "MUST",
+    "title": "Fingerprinted responses carry Cache-Control: public, max-age=31536000, immutable. Plain responses carry Cache-Control: no-cache plus a strong ETag so revalidation is cheap. Debug responses carry no-store."
+  },
+  "FR-HTTP-3": {
+    "level": "MUST",
+    "title": "If-None-Match matching the current ETag yields 304 Not Modified with no body."
+  },
+  "FR-HTTP-4": {
+    "level": "MUST",
+    "title": "A request for a fingerprint that is not current and not among retained versions is answered with 302 Found to the current fingerprinted URL."
+  },
+  "FR-HTTP-5": {
+    "level": "SHOULD",
+    "title": "When the client sends Accept-Encoding: gzip and a .gz sibling exists, it is served with Content-Encoding: gzip and Vary: Accept-Encoding."
+  },
+  "FR-HTTP-6": {
+    "level": "MUST",
+    "title": "Content-Type: text/css; charset=utf-8 and X-Content-Type-Options: nosniff on every response."
+  },
+  "FR-HTTP-7": {
+    "level": "MUST",
+    "title": "HEAD requests return identical headers and no body."
+  },
+  "FR-HTTP-8": {
+    "level": "MUST",
+    "title": "A URL helper returns the current fingerprinted route string for templates. It reads only the metadata file (no compile) unless the cache is missing."
+  },
+  "FR-CONSOLE-1": {
+    "level": "MUST",
+    "title": "build, clear, doctor, install-cli, url, candidates commands as specified in 21-console-commands.md."
+  },
+  "FR-CONSOLE-2": {
+    "level": "SHOULD",
+    "title": "watch (polling), diff (PHP engine vs CLI), report (compat report)."
+  },
+  "FR-CONSOLE-3": {
+    "level": "MUST",
+    "title": "install-cli downloads only over HTTPS, only from the pinned GitHub release URL pattern, verifies SHA-256 against the vetted checksum table shipped in the package, and refuses to run when PHP_SAPI !== 'cli'."
+  },
+  "FR-ERR-1": {
+    "level": "MUST",
+    "title": "In debug mode a compilation failure produces valid CSS that renders a visible error overlay in the page plus the message in a CSS comment."
+  },
+  "FR-ERR-2": {
+    "level": "MUST",
+    "title": "In production a compilation failure serves the previous cached CSS if present and logs the error (PSR-3 if configured, error_log otherwise). If no cache exists, an HTTP 500 with a one-line CSS comment is emitted."
+  },
+  "FR-ERR-3": {
+    "level": "MUST",
+    "title": "Production error output never includes absolute paths, stack traces, or configuration values."
+  },
+  "NFR-SEC-1": {
+    "level": "MUST",
+    "title": "All configured paths are resolved with realpath() and must be inside one of the allowed roots (project root by default). .., NUL bytes, and stream wrappers are rejected."
+  },
+  "NFR-SEC-2": {
+    "level": "MUST",
+    "title": "No shell is ever spawned. Process arguments are passed as an array (PHP ≥ 7.4) or individually escaped with escapeshellarg (PHP 7.3)."
+  },
+  "NFR-SEC-3": {
+    "level": "MUST",
+    "title": "The binary path used by the CLI driver comes only from configuration or the package's own bin/ directory, must be a regular file, executable, and (when installed by us) match a pinned SHA-256."
+  },
+  "NFR-SEC-4": {
+    "level": "MUST",
+    "title": "Cache artefacts are JSON and CSS only. No PHP files, no serialize()/unserialize()."
+  },
+  "NFR-SEC-5": {
+    "level": "MUST",
+    "title": "Debug mode can only be enabled through configuration in code, never through request parameters, headers, cookies, or environment variables read at request time."
+  },
+  "NFR-SEC-6": {
+    "level": "MUST",
+    "title": "Arbitrary values in candidates are validated: balanced brackets, no ;, }, {, newline, or /*; length ≤ 256 bytes. Invalid candidates are dropped."
+  },
+  "NFR-SEC-7": {
+    "level": "MUST",
+    "title": "All regexes used on untrusted-length input are linear-time by construction and preg_last_error() is checked after each call."
+  },
+  "NFR-SEC-8": {
+    "level": "MUST",
+    "title": "Files and directories are created with explicit modes (default 0644/0755) and the library never chmods to anything broader."
+  },
+  "NFR-SEC-9": {
+    "level": "MUST",
+    "title": "Every HTTP header value is generated from validated internal data; the fingerprint is validated with ^[a-f0-9]{8,16}$ before being echoed anywhere."
+  },
+  "NFR-PERF-1": {
+    "level": "SHOULD",
+    "title": "Warm-cache request (cache valid, 500 watched files): ≤ 2.0 ms wall, ≤ 600 stat calls, no file reads other than metadata."
+  },
+  "NFR-PERF-2": {
+    "level": "SHOULD",
+    "title": "Frozen-mode request: ≤ 0.3 ms, exactly 1 stat + 1 metadata read."
+  },
+  "NFR-PERF-3": {
+    "level": "SHOULD",
+    "title": "check_interval hit: ≤ 0.2 ms, 1 stat."
+  },
+  "NFR-PERF-4": {
+    "level": "SHOULD",
+    "title": "Candidate re-extraction for 1 changed 50 KB template: ≤ 5 ms."
+  },
+  "NFR-PERF-5": {
+    "level": "SHOULD",
+    "title": "PHP engine full compile, 2 000 unique candidates, preflight + theme: ≤ 300 ms, ≤ 32 MB peak."
+  },
+  "NFR-PERF-6": {
+    "level": "SHOULD",
+    "title": "Library bootstrap (autoload + config + no I/O): ≤ 1.0 ms."
+  },
+  "NFR-PERF-7": {
+    "level": "SHOULD",
+    "title": "Response streaming uses readfile()/fpassthru(); the CSS body is never held in memory when serving from cache."
+  },
+  "NFR-COMPAT-1": {
+    "level": "SHOULD",
+    "title": "PHP >=7.3. CI matrix runs the full suite on 7.3, 7.4, 8.0–8.4 (+8.5 when available)."
+  },
+  "NFR-COMPAT-2": {
+    "level": "SHOULD",
+    "title": "Required extensions: ext-json, ext-pcre (always present). Suggested: ext-zlib, ext-apcu, ext-mbstring (not required; all string handling is byte-oriented)."
+  },
+  "NFR-COMPAT-3": {
+    "level": "SHOULD",
+    "title": "Works under open_basedir, with disable_functions containing all process functions, with allow_url_fopen=0 (only install-cli needs network, and it uses cURL when available, streams otherwise, and fails clearly if neither works)."
+  },
+  "NFR-COMPAT-4": {
+    "level": "SHOULD",
+    "title": "Works on Linux and macOS; Windows is best-effort (path handling must not break, rename() over an open file is handled by retry)."
+  },
+  "NFR-COMPAT-5": {
+    "level": "SHOULD",
+    "title": "Works with Apache (mod_rewrite), nginx (try_files), and PHP's built-in server (router script)."
+  },
+  "NFR-QUAL-1": {
+    "level": "SHOULD",
+    "title": "PHPStan level 8 with phpVersion: 70300, zero baseline errors."
+  },
+  "NFR-QUAL-2": {
+    "level": "SHOULD",
+    "title": "PSR-12 enforced by PHP_CodeSniffer; PHP-CS-Fixer with @PHP73Migration ruleset."
+  },
+  "NFR-QUAL-3": {
+    "level": "SHOULD",
+    "title": "Line coverage ≥ 90 % overall, ≥ 95 % in Cache/, Scanner/, Http/, Support/Path."
+  },
+  "NFR-QUAL-4": {
+    "level": "SHOULD",
+    "title": "Every public class and method has a docblock stating purpose, parameters, return, and thrown exceptions."
+  },
+  "NFR-QUAL-5": {
+    "level": "SHOULD",
+    "title": "Semantic versioning; CHANGELOG.md in Keep-a-Changelog format; BC breaks only in major versions."
+  }
+}

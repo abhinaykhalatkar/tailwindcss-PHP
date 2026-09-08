@@ -11,6 +11,9 @@ use TailwindPhp\Compiler\Cli\Checksums;
 use TailwindPhp\Exception\DriverUnavailableException;
 use TailwindPhp\Support\FilesystemInterface;
 
+/**
+ * @covers-requirement NFR-SEC-3
+ */
 final class BinaryVerifierTest extends TestCase
 {
     /**

@@ -22,6 +22,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * is nothing but a comparison. And `load()` must be total: for every possible
  * byte sequence on disk it returns either a `Manifest` or `null`, never an
  * exception, because the caller is rendering a page (design doc 15).
+ *
+ * @covers-requirement FR-CACHE-4
  */
 final class ManifestTest extends TestCase
 {

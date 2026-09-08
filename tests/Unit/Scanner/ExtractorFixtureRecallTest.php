@@ -14,6 +14,8 @@ use TailwindPhp\Scanner\CandidateExtractor;
  * CLI-derived conformance suite that checks precision too lands in M2
  * (design doc 16 §Conformance suite); until then this is the only check that
  * these fixtures work at all.
+ *
+ * @covers-requirement FR-SCAN-2
  */
 final class ExtractorFixtureRecallTest extends TestCase
 {

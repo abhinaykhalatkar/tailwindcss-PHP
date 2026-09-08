@@ -54,8 +54,11 @@ use TailwindPhp\Tests\Support\TempProject;
  * The HTTP rows (304 / 302 / HEAD / gzip negotiation) belong to wave 3.
  *
  * @covers-requirement FR-PIPE-1
- * @covers-requirement FR-PIPE-2
  * @covers-requirement FR-FRESH-1
+ *
+ * @covers-requirement FR-PIPE-4 FR-FRESH-1 FR-FRESH-2 FR-FRESH-3 FR-FRESH-4 FR-FRESH-5
+ * @covers-requirement FR-FRESH-7 FR-FRESH-8 FR-CACHE-1 FR-CACHE-3 FR-CACHE-4 FR-COMP-4
+ * @covers-requirement FR-ERR-1 FR-ERR-2 FR-ERR-3
  */
 final class LifecycleTest extends TestCase
 {
@@ -891,6 +894,86 @@ final class LifecycleTest extends TestCase
 
         self::assertSame('cached', $result->source());
         self::assertSame(0, $this->compiler()->calls());
+    }
+
+    /**
+     * The fast path has the waiting path's race in miniature: this request
+     * loaded no manifest, the winner published one and released the lock in
+     * the gap, and tryAcquire() now succeeds. Compiling again would be a second
+     * build of the same content (I3), so the orchestrator looks once more
+     * before it builds.
+     *
+     * @covers-requirement FR-CACHE-3
+     * @covers-invariant I3
+     *
+     * @test
+     */
+    public function aFastPathWinnerThatFindsAFreshManifestServesItInsteadOfRebuilding(): void
+    {
+        $this->pipeline()->resolve('app');
+        $manifestPath = $this->project()->manifestPath('app');
+        $manifestJson = (string) \file_get_contents($manifestPath);
+        $cacheDir = \dirname($manifestPath);
+        $artefacts = [];
+
+        foreach (\scandir($cacheDir) ?: [] as $entry) {
+            if (\substr($entry, 0, 4) === 'app.' && \substr($entry, -4) === '.css') {
+                $artefacts[$entry] = (string) \file_get_contents($cacheDir . '/' . $entry);
+            }
+        }
+
+        $this->removeDirectory($cacheDir);
+        \mkdir($cacheDir, 0777, true);
+        $this->compiler()->resetCalls();
+
+        $this->lock = new class ($manifestPath, $manifestJson, $artefacts) implements LockInterface {
+            /** @var string */
+            private $manifestPath;
+            /** @var string */
+            private $manifestJson;
+            /** @var array<string, string> */
+            private $artefacts;
+
+            /**
+             * @param array<string, string> $artefacts
+             */
+            public function __construct(string $manifestPath, string $manifestJson, array $artefacts)
+            {
+                $this->manifestPath = $manifestPath;
+                $this->manifestJson = $manifestJson;
+                $this->artefacts = $artefacts;
+            }
+
+            public function tryAcquire(): bool
+            {
+                // The winner released a moment ago and its files are already there.
+                foreach ($this->artefacts as $name => $contents) {
+                    \file_put_contents(\dirname($this->manifestPath) . '/' . $name, $contents);
+                }
+                \file_put_contents($this->manifestPath, $this->manifestJson);
+
+                return true;
+            }
+
+            public function acquire(float $timeoutSec): bool
+            {
+                return true;
+            }
+
+            public function release(): void
+            {
+            }
+
+            public function isSupported(): bool
+            {
+                return true;
+            }
+        };
+
+        $result = $this->pipeline()->resolve('app');
+
+        self::assertSame('cached', $result->source());
+        self::assertSame(0, $this->compiler()->calls(), 'the fresh manifest is served, not rebuilt');
     }
 
     /**

@@ -17,6 +17,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * A real temporary directory rather than a double: the whole point of the class
  * is the `fopen('xb')` / `chmod` / `rename` sequence, and a fake filesystem
  * would only assert that the test author remembered the sequence.
+ *
+ * @covers-requirement FR-CACHE-2
  */
 final class AtomicWriterTest extends TestCase
 {

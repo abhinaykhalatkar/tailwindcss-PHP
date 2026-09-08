@@ -34,6 +34,8 @@ use TailwindPhp\Tools\StaticSecurityChecks;
  * 2. **No input reaches the user as an exception.** `Manifest::load()` returns
  *    `null` and a diagnostic for every kind of garbage, including bytes crafted
  *    to look like PHP.
+ *
+ * @covers-requirement NFR-SEC-4
  */
 final class T08CacheCodeExecutionTest extends TestCase
 {

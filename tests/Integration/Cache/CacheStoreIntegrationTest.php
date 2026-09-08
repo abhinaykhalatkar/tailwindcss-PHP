@@ -18,6 +18,8 @@ use TailwindPhp\Tests\Support\TempTree;
  * left is the part that only a real filesystem shows: that the guards contain
  * the bytes we shipped, that a full build cycle leaves the directory in exactly
  * the expected state, and that running the cycle twice is idempotent.
+ *
+ * @covers-requirement FR-CACHE-1 FR-CACHE-5 FR-CACHE-8
  */
 final class CacheStoreIntegrationTest extends TestCase
 {

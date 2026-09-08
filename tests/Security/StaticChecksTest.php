@@ -17,6 +17,8 @@ use TailwindPhp\Tools\StaticSecurityChecks;
  * the shared engine from `tools/` and asserts on its output. Two front ends,
  * one set of rules; a rule that drifted between them would be worse than no
  * rule at all.
+ *
+ * @covers-requirement FR-SCAN-1
  */
 final class StaticChecksTest extends TestCase
 {

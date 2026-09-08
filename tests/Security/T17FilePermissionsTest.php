@@ -28,6 +28,8 @@ use TailwindPhp\Tests\Support\TempTree;
  *
  * POSIX modes are not modelled on Windows, so every assertion here skips there
  * with a reason rather than pretending to pass.
+ *
+ * @covers-requirement FR-CACHE-5 NFR-SEC-8
  */
 final class T17FilePermissionsTest extends TestCase
 {

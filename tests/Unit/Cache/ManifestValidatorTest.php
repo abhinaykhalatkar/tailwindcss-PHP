@@ -11,6 +11,9 @@ use TailwindPhp\Cache\ManifestValidator;
 use TailwindPhp\Exception\ManifestCorruptException;
 use TailwindPhp\Support\Json;
 
+/**
+ * @covers-requirement FR-CACHE-4
+ */
 final class ManifestValidatorTest extends TestCase
 {
     /** @test */

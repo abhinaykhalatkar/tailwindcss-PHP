@@ -8,6 +8,9 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use TailwindPhp\Freshness\EnvironmentFingerprint;
 
+/**
+ * @covers-requirement FR-FRESH-8
+ */
 final class EnvironmentFingerprintTest extends TestCase
 {
     /** @test */
