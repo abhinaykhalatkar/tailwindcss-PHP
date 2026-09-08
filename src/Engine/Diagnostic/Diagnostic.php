@@ -37,6 +37,7 @@ final class Diagnostic
     public const E_THEME_INVALID = 'E_THEME_INVALID';
     public const E_CLI_FAILED = 'E_CLI_FAILED';
     public const E_CLI_TIMEOUT = 'E_CLI_TIMEOUT';
+    public const E_BUILD_FAILED = 'E_BUILD_FAILED';
 
     public const W_UNKNOWN_UTILITY = 'W_UNKNOWN_UTILITY';
     public const W_UNKNOWN_VARIANT = 'W_UNKNOWN_VARIANT';
@@ -68,6 +69,7 @@ final class Diagnostic
         self::E_THEME_INVALID,
         self::E_CLI_FAILED,
         self::E_CLI_TIMEOUT,
+        self::E_BUILD_FAILED,
         self::W_UNKNOWN_UTILITY,
         self::W_UNKNOWN_VARIANT,
         self::W_INVALID_ARBITRARY,

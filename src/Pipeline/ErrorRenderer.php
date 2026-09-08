@@ -7,6 +7,7 @@ namespace TailwindPhp\Pipeline;
 use TailwindPhp\Engine\Css\Escape;
 use TailwindPhp\Engine\Diagnostic\Diagnostic;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
+use TailwindPhp\Exception\LogSafety;
 
 /**
  * Turns a failed build into something a browser or a terminal can show
@@ -26,9 +27,12 @@ use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
  * code, no path — because the body is served to the public and a compiler error
  * routinely quotes a file path (threat T-06). The detail goes to the log.
  *
- * Exceptions arrive already scrubbed by `LogSafety`, so this class does not
- * re-scrub; what it must never do is reach for `getFile()` or
- * `getTraceAsString()` on the production path, where neither is scrubbed at all.
+ * The library's own exceptions arrive already scrubbed by `LogSafety`, but the
+ * pipeline's fail-soft catch is `\Throwable`, so a third-party exception can
+ * carry an absolute path in its message. Every message is therefore scrubbed
+ * **here**, structurally, so no caller can leak one (TASK-0015 round 4, T-06).
+ * What this class must never do is reach for `getFile()` or
+ * `getTraceAsString()`, where neither is scrubbed at all.
  */
 final class ErrorRenderer
 {
@@ -55,19 +59,20 @@ final class ErrorRenderer
         ?DiagnosticBag $diagnostics = null
     ): string {
         $errors = self::errorsIn($diagnostics);
+        $message = LogSafety::scrubText($e->getMessage());
 
         // The banner shows the *first* error; the comment shows all of them
         // (design doc 15). With no diagnostics at all — an infrastructure
         // failure rather than a CSS one — the exception message is what there
         // is to say.
         $headline = $errors === []
-            ? $e->getMessage()
+            ? $message
             : self::describe($errors[0], ' — ');
 
         $comment = "/* tailwindcss-php build failed\n";
 
         if ($errors === []) {
-            $comment .= '   ' . self::commentSafe($e->getMessage()) . "\n";
+            $comment .= '   ' . self::commentSafe($message) . "\n";
         }
 
         foreach ($errors as $diagnostic) {
@@ -110,10 +115,10 @@ final class ErrorRenderer
             $heading = "\033[1;31m" . $heading . "\033[0m";
         }
 
-        // getMessage() only. getFile() and getTraceAsString() are not scrubbed
-        // and would print absolute paths into a terminal that is routinely
-        // pasted into an issue (T-06).
-        return $heading . "\n" . $e->getMessage() . "\n";
+        // getMessage() only, and scrubbed. getFile() and getTraceAsString() are
+        // never touched: they would print absolute paths into a terminal that
+        // is routinely pasted into an issue (T-06).
+        return $heading . "\n" . LogSafety::scrubText($e->getMessage()) . "\n";
     }
 
     /**

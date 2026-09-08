@@ -61,8 +61,12 @@ final class ErrorRendererTest extends TestCase
         self::assertNotFalse($commentEnd);
         // The first terminator must be the one that closes our own block, at
         // the end of the comment — not one from the message.
-        self::assertStringContainsString("*/\nhtml::before {", $overlay);
-        self::assertStringContainsString('* / html { display: none }', $overlay);
+        self::assertSame($commentEnd, \strpos($overlay, "*/\nhtml::before {"));
+        // The message itself survives (the scrubber, which runs first, redacts
+        // the slash-led token as path-like; the neutraliser then guarantees no
+        // second terminator regardless of what the scrubber left).
+        self::assertStringContainsString('html { display: none }', $overlay);
+        self::assertSame(1, \substr_count($overlay, '*/'));
     }
 
     /**

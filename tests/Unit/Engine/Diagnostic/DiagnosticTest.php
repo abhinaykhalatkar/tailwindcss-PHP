@@ -274,6 +274,7 @@ final class DiagnosticTest extends TestCase
             'E_THEME_INVALID',
             'E_CLI_FAILED',
             'E_CLI_TIMEOUT',
+            'E_BUILD_FAILED',
             'W_UNKNOWN_UTILITY',
             'W_UNKNOWN_VARIANT',
             'W_INVALID_ARBITRARY',
