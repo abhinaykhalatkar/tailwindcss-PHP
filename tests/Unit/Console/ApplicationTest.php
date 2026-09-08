@@ -63,7 +63,7 @@ final class ApplicationTest extends TestCase
 
         self::assertSame(0, $code);
 
-        foreach (['build', 'clear', 'url', 'candidates'] as $name) {
+        foreach (['build', 'clear', 'doctor', 'install-cli', 'url', 'candidates'] as $name) {
             self::assertStringContainsString($name, $out, 'the usage screen omits ' . $name);
         }
     }

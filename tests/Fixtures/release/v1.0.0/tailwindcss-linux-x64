@@ -1,0 +1,4 @@
+#!/bin/sh
+# Fake Tailwind standalone binary for the T-18 fixture release server.
+# The tests only ever hash it; it is never executed.
+echo "tailwindcss 0.0.0-fixture"
