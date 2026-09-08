@@ -76,15 +76,19 @@ final class StandaloneCliCompiler implements CompilerInterface
     private const TEMPORARY_NAMES = [self::INPUT_NAME, self::CANDIDATES_NAME, self::OUTPUT_NAME];
 
     /**
-     * Prepended to every `input.css` (decision CCP-A10).
+     * Prepended to every `input.css` (decision CCP-A10, amended by CCP-A35).
      *
-     * `@source none` first, so the binary scans nothing on its own: it must not
-     * walk the project, both because the scanner has already done that and
-     * because a binary let loose on the tree is a binary reading files nobody
-     * decided it should read. `candidates.txt` is then the *only* source, and it
-     * contains exactly the candidate set the manifest hashed.
+     * The binary must not walk the project: the scanner has already done that,
+     * and a binary let loose on the tree is a binary reading files nobody
+     * decided it should read. That confinement comes from `--cwd`, which points
+     * at the private temporary directory holding only `input.css`,
+     * `candidates.txt` and the output: Tailwind's automatic source detection
+     * looks nowhere else. `candidates.txt` is named explicitly as well, so the
+     * stylesheet is a function of exactly the candidate set the manifest hashed.
+     * (`@source none;` was tried first and is rejected by Tailwind 4.1 with
+     * "`@source` paths must be quoted", so it is not written.)
      */
-    private const SOURCE_PREAMBLE = "@source none;\n@source \"./candidates.txt\";\n";
+    private const SOURCE_PREAMBLE = "@source \"./candidates.txt\";\n";
 
     /**
      * How deep `@import` inlining goes before it stops (CCP-A8).
@@ -293,8 +297,8 @@ final class StandaloneCliCompiler implements CompilerInterface
             // survives this line is code.
             $body = self::withoutComments($entryCss);
 
-            // `@source` in the entry would override the `@source none` in the
-            // preamble and point the binary at the whole disk, so it is removed
+            // `@source` in the entry would point the binary at the whole disk
+            // (the preamble only names `candidates.txt`), so it is removed
             // and reported rather than honoured (CCP-A30).
             $body = $this->stripSourceDirectives($body, $notices);
             $input = self::SOURCE_PREAMBLE . $this->inlineImports($body, $imports, '', 0, $inlined, $notices);
@@ -445,10 +449,10 @@ final class StandaloneCliCompiler implements CompilerInterface
     /**
      * Remove every `@source` directive from the entry stylesheet (CCP-A30).
      *
-     * `@source none` in the preamble is what stops the binary walking the project
-     * on its own — the scanner has already done that, and a binary let loose on
-     * the tree reads files nobody decided it should read. But the preamble is
-     * only *prepended*, so a later `@source "/"` in the entry silently wins.
+     * The temporary `--cwd` is what stops the binary walking the project on its
+     * own — the scanner has already done that, and a binary let loose on the
+     * tree reads files nobody decided it should read. But a `@source "/"` in the
+     * entry would name a root outside that directory and silently win.
      * Rather than let that happen quietly, the directives are stripped and each
      * one is reported: honouring them is an M2 feature, and an operator who wrote
      * one deserves to be told it did nothing.

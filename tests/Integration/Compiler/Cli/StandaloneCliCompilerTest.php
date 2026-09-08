@@ -43,6 +43,8 @@ use TailwindPhp\Tests\Support\TempTree;
  *   to read `getenv()` (static rule R3) — which is why these tests inject the
  *   real `Environment` rather than a substitute: a fake would describe a
  *   different child world than the one production gets.
+ *
+ * @covers-requirement FR-COMP-3 FR-COMP-5
  */
 final class StandaloneCliCompilerTest extends TestCase
 {
@@ -117,9 +119,10 @@ final class StandaloneCliCompilerTest extends TestCase
     }
 
     /**
-     * `@source none;` first, then the candidate file: the binary must scan
-     * exactly what we handed it and nothing it finds for itself, or the
-     * stylesheet stops being a function of the candidate union.
+     * The candidate file is the first thing in the input: the binary must scan
+     * exactly what we handed it, or the stylesheet stops being a function of
+     * the candidate union. `@source none;` is deliberately absent — Tailwind 4.1
+     * rejects it (CCP-A35); the private `--cwd` keeps detection off the project.
      *
      * @test
      */
@@ -128,7 +131,7 @@ final class StandaloneCliCompilerTest extends TestCase
         $this->compileEntry(".entry{}\n");
 
         self::assertStringStartsWith(
-            "@source none;\n@source \"./candidates.txt\";\n",
+            "@source \"./candidates.txt\";\n",
             $this->recordedString('input')
         );
     }
@@ -443,8 +446,8 @@ final class StandaloneCliCompilerTest extends TestCase
     /**
      * `@source` in the entry is stripped and reported (CCP-A30).
      *
-     * The preamble is only *prepended*, so a later `@source "/"` silently won
-     * and pointed the binary at the whole disk.
+     * The preamble is only *prepended*, so a later `@source "/"` would name a
+     * root outside the private `--cwd` and point the binary at the whole disk.
      *
      * @test
      */
@@ -454,8 +457,8 @@ final class StandaloneCliCompilerTest extends TestCase
 
         $input = $this->recordedString('input');
 
-        // The two the preamble writes, and no others.
-        self::assertSame(2, \substr_count($input, '@source'), 'An entry @source reached the binary.');
+        // The one the preamble writes, and no others.
+        self::assertSame(1, \substr_count($input, '@source'), 'An entry @source reached the binary.');
         self::assertStringNotContainsString('"/"', $input);
 
         $codes = [];
