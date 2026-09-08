@@ -34,7 +34,8 @@
         "psr/http-factory": "PSR-7 response bridge for frameworks"
     },
     "autoload": {
-        "psr-4": { "TailwindPhp\\": "src/" }
+        "psr-4": { "TailwindPhp\\": "src/" },
+        "files": ["src/functions.php"]
     },
     "autoload-dev": {
         "psr-4": { "TailwindPhp\\Tests\\": "tests/" }

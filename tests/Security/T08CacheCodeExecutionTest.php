@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace TailwindPhp\Tests\Security;
 
 use PHPUnit\Framework\TestCase;
+use TailwindPhp\Bridge\LegacyHandler;
 use TailwindPhp\Cache\Manifest;
 use TailwindPhp\Cache\ManifestValidator;
 use TailwindPhp\Engine\Diagnostic\Diagnostic;
+use TailwindPhp\Exception\ConfigurationException;
 use TailwindPhp\Exception\ManifestCorruptException;
 use TailwindPhp\Support\FilesystemInterface;
+use TailwindPhp\Tests\Support\TempTree;
 use TailwindPhp\Tools\StaticSecurityChecks;
 
 /**
@@ -78,6 +81,117 @@ final class T08CacheCodeExecutionTest extends TestCase
         self::assertNull($result, 'A hostile manifest was accepted.');
         self::assertInstanceOf(Diagnostic::class, $diagnostic);
         self::assertSame(Diagnostic::W_MANIFEST_CORRUPT, $diagnostic->code());
+    }
+
+    /**
+     * The bridge half of this threat (TASK-0018 acceptance 8).
+     *
+     * `Bridge\LegacyHandler` is the only class outside the console that loads a
+     * PHP configuration file, and it looks in two places. Neither is the cache
+     * directory — but the cache directory is the one an attacker who can write
+     * to the server is most likely to reach, because it is world-writable on
+     * plenty of shared hosts and its contents churn constantly.
+     *
+     * The control is structural: the handler goes through
+     * {@see \TailwindPhp\Config\ConfigFile::load()}, the single `require` site
+     * in `src/`, which refuses a path under the cache directory. This row
+     * asserts the **outcome** rather than the code path — the planted files
+     * write a marker if they ever execute, so it cannot pass merely because the
+     * lookup happened to look elsewhere.
+     *
+     * @test
+     */
+    public function aConfigFilePlantedInTheCacheDirectoryIsNeverExecutedByTheBridge(): void
+    {
+        $root = TempTree::make('tailwindphp-t08-bridge');
+        $previous = \getcwd();
+
+        try {
+            \mkdir($root . '/assets/styles', 0777, true);
+            \mkdir($root . '/templates', 0777, true);
+            \mkdir($root . '/cache/tailwind/config', 0777, true);
+            \file_put_contents($root . '/assets/styles/main.css', "@import \"tailwindcss\";\n");
+            \file_put_contents($root . '/templates/index.twig', "<div class=\"flex\"></div>\n");
+
+            $marker = $root . '/pwned.txt';
+            $payload = "<?php\n\n\\file_put_contents('" . \addslashes($marker) . "', 'executed');\n\nreturn [];\n";
+
+            foreach (['cache/tailwind/tailwind.php', 'cache/tailwind/config/tailwind.php'] as $planted) {
+                \file_put_contents($root . '/' . $planted, $payload);
+            }
+
+            \chdir($root);
+            $handler = new LegacyHandler(false, 'assets/styles');
+
+            self::assertNotSame('', $handler->getContent(), 'the handler should still have produced CSS');
+            self::assertFileDoesNotExist($marker, 'a config file under the cache directory was executed');
+        } finally {
+            if ($previous !== false) {
+                \chdir($previous);
+            }
+
+            TempTree::remove($root);
+        }
+    }
+
+    /**
+     * The row that can actually fail (round-2 item 3).
+     *
+     * The row above passes for a weak reason: the handler's two candidates are
+     * `config/tailwind.php` and `<dirname($path)>/tailwind.php`, so a file under
+     * `cache/tailwind/` is never *looked at*, and removing the guard entirely
+     * leaves it green. What exercises the guard is a `$path` that puts the
+     * candidate inside the cache directory — a project whose stylesheets live
+     * at `cache/tailwind/styles` makes `cache/tailwind/tailwind.php` the file
+     * beside them.
+     *
+     * That is contrived as a project layout and exactly right as a test: it is
+     * the one arrangement in which `ConfigFile::load()`'s cache-directory
+     * refusal is the only thing standing between a planted file and `require`.
+     *
+     * @test
+     */
+    public function theCacheDirectoryGuardIsWhatStopsAPlantedConfig(): void
+    {
+        $root = TempTree::make('tailwindphp-t08-guard');
+        $previous = \getcwd();
+
+        try {
+            \mkdir($root . '/cache/tailwind/styles', 0777, true);
+            \mkdir($root . '/templates', 0777, true);
+            \file_put_contents($root . '/cache/tailwind/styles/main.css', "@import \"tailwindcss\";\n");
+            \file_put_contents($root . '/templates/index.twig', "<div class=\"flex\"></div>\n");
+
+            $marker = $root . '/pwned.txt';
+            \file_put_contents(
+                $root . '/cache/tailwind/tailwind.php',
+                "<?php\n\n\\file_put_contents('" . \addslashes($marker) . "', 'executed');\n\nreturn [];\n"
+            );
+
+            \chdir($root);
+
+            $thrown = null;
+
+            try {
+                new LegacyHandler(false, 'cache/tailwind/styles');
+            } catch (\Throwable $e) {
+                $thrown = $e;
+            }
+
+            self::assertInstanceOf(
+                ConfigurationException::class,
+                $thrown,
+                'a config file inside the cache directory must be refused, not loaded'
+            );
+            self::assertStringContainsString('cache', (string) $thrown->getMessage());
+            self::assertFileDoesNotExist($marker, 'the planted config executed');
+        } finally {
+            if ($previous !== false) {
+                \chdir($previous);
+            }
+
+            TempTree::remove($root);
+        }
     }
 
     /**

@@ -6,6 +6,7 @@ namespace TailwindPhp\Tests\Security;
 
 use PHPUnit\Framework\TestCase;
 use TailwindPhp\Config\ConfigBuilder;
+use TailwindPhp\Tests\Support\TempProject;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -148,6 +149,59 @@ final class T09DebugFromRequestTest extends TestCase
 
         self::assertTrue($on->debug());
         self::assertFalse($off->debug());
+    }
+
+    /**
+     * The same question asked of the whole request path (TASK-0018
+     * acceptance 8).
+     *
+     * The rows above prove `Config::debug()` cannot be moved. This one proves
+     * it is the only thing that decides what a visitor receives: a request
+     * carrying every debug-shaped parameter and header anyone has ever tried
+     * gets byte-identical treatment to a clean one.
+     *
+     * The difference is visible rather than subtle — debug sends `no-store` and
+     * no `ETag`, production sends `no-cache` and one — so a leak here would show
+     * up as a changed header rather than as something needing interpretation.
+     *
+     * @test
+     */
+    public function noRequestChannelCanTurnDebugOnThroughTheFacade(): void
+    {
+        $project = new TempProject();
+
+        try {
+            $this->poisonEveryChannel();
+
+            $clean = $project->request('assets/styles.css');
+            $poisoned = $project->request('assets/styles.css', [
+                'REQUEST_URI' => '/assets/styles.css?debug=1&XDEBUG_TRIGGER=1',
+                'QUERY_STRING' => 'debug=1',
+                'HTTP_X_DEBUG' => '1',
+                'HTTP_X_TAILWIND_DEBUG' => 'true',
+                'HTTP_COOKIE' => 'debug=1',
+                'HTTP_AUTHORIZATION' => 'Bearer debug',
+            ]);
+
+            self::assertNotNull($clean);
+            self::assertNotNull($poisoned);
+
+            self::assertSame($clean->status(), $poisoned->status());
+            self::assertSame('no-cache', $poisoned->headerValue('Cache-Control'));
+            self::assertNotNull($poisoned->headerValue('ETag'), 'production always sends a validator');
+            self::assertSame($clean->headerValue('Cache-Control'), $poisoned->headerValue('Cache-Control'));
+            self::assertNull($poisoned->body(), 'a debug overlay would have been an inline body');
+
+            // And the control: debug really does look different, so the
+            // assertions above are capable of failing.
+            $debug = $project->request('assets/styles.css', [], ['debug' => true]);
+
+            self::assertNotNull($debug);
+            self::assertSame('no-store', $debug->headerValue('Cache-Control'));
+            self::assertNull($debug->headerValue('ETag'));
+        } finally {
+            $project->remove();
+        }
     }
 
     private function poisonEveryChannel(): void

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace TailwindPhp\Tests\Support;
 
+use TailwindPhp\Http\Response;
+use TailwindPhp\Tailwind;
+
 /**
  * A throwaway project on disk: the fixture the integration suite drives
  * (design doc 16 §Integration test conventions).
@@ -204,6 +207,52 @@ final class TempProject
         $decoded = \json_decode($raw, true);
 
         return \is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * A facade wired to this project (TASK-0018 acceptance 5).
+     *
+     * The defaults are the shape every integration row starts from — the PHP
+     * engine, the project's own entry and templates, its cache directory — so a
+     * row states only the setting it is actually about.
+     *
+     * A fresh facade per call on purpose: `Tailwind` memoises its collaborators,
+     * so reusing one across two requests in a row would hide a cold-start cost
+     * and share a manifest read that a real second request would repeat.
+     *
+     * @param array<string, mixed> $overrides Merged over the defaults.
+     */
+    public function tailwind(array $overrides = []): Tailwind
+    {
+        return Tailwind::fromArray(\array_merge([
+            'project_root' => $this->root,
+            'driver' => 'php',
+            'input' => self::ENTRY,
+            'sources' => ['templates'],
+            'cache_dir' => self::CACHE_DIR,
+            'bundles' => ['app' => []],
+        ], $overrides));
+    }
+
+    /**
+     * One HTTP request against this project.
+     *
+     * `REQUEST_URI` defaults to the route with a leading slash, which is what a
+     * web server sends; a row that cares about the difference passes its own.
+     * Everything else in $server is merged verbatim, so a header row reads as
+     * the header it is testing.
+     *
+     * @param array<string, mixed> $server Merged over the defaults.
+     * @param array<string, mixed> $overrides Configuration for the facade.
+     *
+     * @return Response|null Null when the route is not ours.
+     */
+    public function request(string $route, array $server = [], array $overrides = []): ?Response
+    {
+        return $this->tailwind($overrides)->handle($route, $server + [
+            'REQUEST_METHOD' => 'GET',
+            'REQUEST_URI' => '/' . \ltrim($route, '/'),
+        ]);
     }
 
     /**
