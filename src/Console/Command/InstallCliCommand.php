@@ -60,6 +60,21 @@ final class InstallCliCommand extends AbstractCommand
     private const MAX_REDIRECTS = 5;
 
     /**
+     * The most this will ever write, in bytes.
+     *
+     * The real binary is tens of megabytes; 512 MiB is far above any plausible
+     * release and far below "fill the disk". Without it a redirect to a
+     * generator streams until the volume is full, and the checksum that would
+     * have rejected the bytes is only computed at the end.
+     */
+    private const MAX_BYTES = 536870912;
+
+    /**
+     * How much is read per iteration by the stream fallback.
+     */
+    private const CHUNK_BYTES = 65536;
+
+    /**
      * @var string
      */
     private $sapi;
@@ -152,11 +167,16 @@ final class InstallCliCommand extends AbstractCommand
         $url = $this->base . '/v' . $version . '/tailwindcss-' . $platform;
         $temporary = $dest . '.tmp';
 
-        $this->ensureDirectory(\dirname($dest));
+        // Created only if it is missing, and removed again when the download
+        // fails: a failed install must not leave an empty `vendor/bin` behind
+        // for the next tool to trip over.
+        $created = $this->ensureDirectory(\dirname($dest));
 
         $digest = $this->download($url, $temporary, $output);
 
         if ($digest === null) {
+            $this->removeIfCreated($created);
+
             return 3;
         }
 
@@ -176,7 +196,19 @@ final class InstallCliCommand extends AbstractCommand
             return 1;
         }
 
-        if (!@\chmod($temporary, 0755) || !@\rename($temporary, $dest)) {
+        // `chmod` without `@`: doc 18 allows suppression only around
+        // rename/unlink/flock/mkdir. A false return on Windows is expected —
+        // there is no POSIX mode there — so it is reported and not treated as
+        // fatal; on a POSIX host it means the binary would not be executable,
+        // which is worth stopping for.
+        if (!\chmod($temporary, 0755) && \DIRECTORY_SEPARATOR !== '\\') {
+            @\unlink($temporary);
+            $output->error('The verified binary could not be made executable.');
+
+            return 1;
+        }
+
+        if (!@\rename($temporary, $dest)) {
             @\unlink($temporary);
             $output->error('The verified binary could not be moved into place.');
 
@@ -297,22 +329,49 @@ final class InstallCliCommand extends AbstractCommand
             $normalized = \rtrim($root, '/') . '/' . $normalized;
         }
 
-        // The parent must exist for a real resolution, so the check is against
-        // the directory; the filename itself is ours.
-        $parent = Path::confine(\dirname($normalized), $root);
+        // Resolved through the filesystem, not compared as a string (T-14).
+        // `Path::confine()` is lexical, so with `vendor/bin` a junction to a
+        // directory outside the project the executable lands outside while the
+        // path still *reads* as being inside. `Path::resolve()` follows the
+        // link first, which is the check that actually holds.
+        $parent = Path::resolve($root, \dirname($normalized), [$root], false);
 
         return $parent . '/' . \basename($normalized);
     }
 
-    private function ensureDirectory(string $dir): void
+    /**
+     * @return string|null The directory this call created, so a failed download
+     *                     can undo it.
+     */
+    private function ensureDirectory(string $dir): ?string
     {
         if (\is_dir($dir)) {
-            return;
+            return null;
         }
 
         // Documented `@` case (doc 18): a concurrent run may have created it.
         if (!@\mkdir($dir, 0755, true) && !\is_dir($dir)) {
             throw new ConsoleException('Could not create the destination directory.');
+        }
+
+        return $dir;
+    }
+
+    private function removeIfCreated(?string $dir): void
+    {
+        if ($dir === null) {
+            return;
+        }
+
+        // Only ever the one directory this run made, and only when it is still
+        // empty. Emptiness is checked rather than left to `rmdir` refusing,
+        // because `rmdir` is not in doc 18's suppression allowlist and a
+        // warning here would be noise on a path that is already reporting a
+        // failure.
+        $entries = \scandir($dir);
+
+        if ($entries !== false && \count($entries) <= 2) {
+            \rmdir($dir);
         }
     }
 
@@ -324,19 +383,41 @@ final class InstallCliCommand extends AbstractCommand
      */
     private function download(string $url, string $temporary, Output $output): ?string
     {
-        $handle = @\fopen($temporary, 'wb');
+        if (!\is_writable(\dirname($temporary))) {
+            throw new ConsoleException('The destination directory is not writable.');
+        }
+
+        // Checked rather than silenced: doc 18 permits `@` only around
+        // rename/unlink/flock/mkdir, and a failure to open here is worth
+        // reporting rather than swallowing.
+        $handle = \fopen($temporary, 'wb');
 
         if ($handle === false) {
             throw new ConsoleException('Could not open the temporary file for writing.');
         }
 
         // 0600 while the contents are unverified: no other user can read it,
-        // and nobody at all can execute it.
-        @\chmod($temporary, 0600);
+        // and nobody at all can execute it. Windows has no POSIX mode, so a
+        // false return is expected there and is not a failure — the executable
+        // bit is what matters, and it is not set until the digest matches.
+        if (!\chmod($temporary, 0600) && \DIRECTORY_SEPARATOR !== '\\') {
+            \fclose($handle);
+            @\unlink($temporary);
+
+            throw new ConsoleException('The temporary file could not be made private.');
+        }
+
+        // Hashed **as it arrives** rather than re-read afterwards: the bytes
+        // pass through once, so a 200 MB body never sits in memory and never
+        // has to be read twice. `Support\Hash` has no incremental API — it
+        // hashes a string, a file or a whole stream — so the running context
+        // lives here.
+        $context = \hash_init('sha256');
+        $written = 0;
 
         $ok = \function_exists('curl_init')
-            ? $this->downloadWithCurl($url, $handle, $output)
-            : $this->downloadWithStream($url, $handle, $output);
+            ? $this->downloadWithCurl($url, $handle, $context, $written, $output)
+            : $this->downloadWithStream($url, $handle, $context, $written, $output);
 
         \fclose($handle);
 
@@ -346,28 +427,68 @@ final class InstallCliCommand extends AbstractCommand
             return null;
         }
 
-        return Hash::sha256File($temporary);
+        return \hash_final($context);
     }
 
     /**
      * @param resource $handle
+     * @param \HashContext $context
      */
-    private function downloadWithCurl(string $url, $handle, Output $output): bool
-    {
+    private function downloadWithCurl(
+        string $url,
+        $handle,
+        \HashContext $context,
+        int &$written,
+        Output $output
+    ): bool {
         $curl = \curl_init($url);
 
         if ($curl === false) {
-            $output->error('cURL could not be initialised.');
+            $output->error('cURL could not be initialised. ' . $this->manualInstructions($url));
 
             return false;
         }
 
-        \curl_setopt($curl, \CURLOPT_FILE, $handle);
+        // The write callback is what makes the hash a streaming one: every
+        // chunk is fed to the digest and to the file in the same pass, and
+        // returning short aborts the transfer, which is how the size ceiling
+        // is enforced without buffering.
+        \curl_setopt($curl, \CURLOPT_WRITEFUNCTION, static function (
+            $ignored,
+            string $chunk
+        ) use (
+            $handle,
+            $context,
+            &$written
+        ): int {
+            $length = \strlen($chunk);
+            $written += $length;
+
+            if ($written > self::MAX_BYTES) {
+                return 0;
+            }
+
+            \hash_update($context, $chunk);
+
+            return (int) \fwrite($handle, $chunk);
+        });
+
         \curl_setopt($curl, \CURLOPT_FOLLOWLOCATION, true);
         \curl_setopt($curl, \CURLOPT_MAXREDIRS, self::MAX_REDIRECTS);
         \curl_setopt($curl, \CURLOPT_CONNECTTIMEOUT, self::CONNECT_TIMEOUT);
         \curl_setopt($curl, \CURLOPT_TIMEOUT, self::TRANSFER_TIMEOUT);
         \curl_setopt($curl, \CURLOPT_FAILONERROR, true);
+        \curl_setopt($curl, \CURLOPT_MAXFILESIZE, self::MAX_BYTES);
+
+        // Protocols are pinned so a redirect cannot move the transfer onto
+        // `ftp://`, `file://` or anything else cURL happens to support.
+        // Production redirects (GitHub → its asset CDN) are HTTPS→HTTPS; plain
+        // HTTP is permitted only so the loopback fixture server in the T-18
+        // suite works, and never appears in a real release URL.
+        $protocols = \CURLPROTO_HTTPS | \CURLPROTO_HTTP;
+        \curl_setopt($curl, \CURLOPT_PROTOCOLS, $protocols);
+        \curl_setopt($curl, \CURLOPT_REDIR_PROTOCOLS, $protocols);
+
         // Never negotiable. A download whose certificate is not checked is a
         // download from whoever is on the path (T-18).
         \curl_setopt($curl, \CURLOPT_SSL_VERIFYPEER, true);
@@ -376,7 +497,11 @@ final class InstallCliCommand extends AbstractCommand
         $ok = \curl_exec($curl) !== false;
 
         if (!$ok) {
-            $output->error('Download failed: ' . \curl_error($curl));
+            $reason = $written > self::MAX_BYTES
+                ? 'the download exceeded ' . self::MAX_BYTES . ' bytes'
+                : \curl_error($curl);
+
+            $output->error('Download failed: ' . $reason . '. ' . $this->manualInstructions($url));
         }
 
         \curl_close($curl);
@@ -389,12 +514,16 @@ final class InstallCliCommand extends AbstractCommand
      *
      * @param resource $handle
      */
-    private function downloadWithStream(string $url, $handle, Output $output): bool
-    {
+    private function downloadWithStream(
+        string $url,
+        $handle,
+        \HashContext $hash,
+        int &$written,
+        Output $output
+    ): bool {
         if (!\ini_get('allow_url_fopen')) {
             $output->error(
-                'Neither cURL nor allow_url_fopen is available. Download the binary manually from '
-                . self::RELEASE_BASE . ' and point cli.binary at it.'
+                'Neither cURL nor allow_url_fopen is available. ' . $this->manualInstructions($url)
             );
 
             return false;
@@ -405,21 +534,64 @@ final class InstallCliCommand extends AbstractCommand
                 'timeout' => self::TRANSFER_TIMEOUT,
                 'follow_location' => 1,
                 'max_redirects' => self::MAX_REDIRECTS,
+                // The wrapper list is the stream equivalent of cURL's protocol
+                // pinning: a redirect cannot leave http/https.
+                'protocol_version' => 1.1,
             ],
             'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
         ]);
 
-        $source = @\fopen($url, 'rb', false, $context);
+        // Not silenced: a failure here is reported with the manual fallback,
+        // which is more useful than a warning nobody reads.
+        $source = \fopen($url, 'rb', false, $context);
 
         if ($source === false) {
-            $output->error('Download failed: the release could not be opened.');
+            $output->error('Download failed: the release could not be opened. ' . $this->manualInstructions($url));
 
             return false;
         }
 
-        \stream_copy_to_stream($source, $handle);
+        // Copied by hand rather than with `stream_copy_to_stream` so the digest
+        // and the size ceiling both see every chunk as it arrives.
+        while (!\feof($source)) {
+            $chunk = \fread($source, self::CHUNK_BYTES);
+
+            // An empty read means nothing more is coming, whether that is the
+            // end of the body or a read that failed. Either way the loop is
+            // over, and `feof()` is what decides the difference.
+            if ($chunk === '') {
+                break;
+            }
+
+            $written += \strlen($chunk);
+
+            if ($written > self::MAX_BYTES) {
+                \fclose($source);
+                $output->error(
+                    'Download failed: the release exceeded ' . self::MAX_BYTES . ' bytes. '
+                    . $this->manualInstructions($url)
+                );
+
+                return false;
+            }
+
+            \hash_update($hash, $chunk);
+            \fwrite($handle, $chunk);
+        }
+
         \fclose($source);
 
         return true;
+    }
+
+    /**
+     * What to do when the network will not co-operate.
+     *
+     * Printed on **every** exit-3 path: an operator whose CI has no outbound
+     * access needs the URL and the setting, not just the news that it failed.
+     */
+    private function manualInstructions(string $url): string
+    {
+        return \sprintf('Download it by hand from %s and point cli.binary at the result.', $url);
     }
 }

@@ -297,6 +297,10 @@ final class Output
      *
      * The trailing newline this class adds is appended *after* this runs, so it
      * is never at risk.
+     *
+     * Newline and tab survive: a multi-line remedy and an aligned column are
+     * both things this class deliberately emits, and stripping them would mean
+     * no caller could ever format anything.
      */
     private static function sanitise(string $text): string
     {
@@ -306,6 +310,12 @@ final class Output
         for ($i = 0; $i < $length; $i++) {
             $byte = $text[$i];
             $ordinal = \ord($byte);
+
+            if ($ordinal === 0x0A || $ordinal === 0x09) {
+                $safe .= $byte;
+
+                continue;
+            }
 
             if ($ordinal < 0x20 || $ordinal === 0x7F) {
                 continue;

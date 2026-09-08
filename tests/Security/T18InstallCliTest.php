@@ -134,6 +134,73 @@ final class T18InstallCliTest extends TestCase
     }
 
     /**
+     * A digest differing only in its **last** hex character.
+     *
+     * A prefix comparison, a truncated compare, or a `strncmp` with the wrong
+     * length would all pass the row above — the tampered blob differs from the
+     * first byte. This one differs only at the very end, so nothing short of a
+     * full constant-time comparison survives it.
+     *
+     * @test
+     */
+    public function aDigestDifferingInItsLastCharacterIsRefused(): void
+    {
+        $almost = \substr(self::GOOD_DIGEST, 0, -1) . (\substr(self::GOOD_DIGEST, -1) === 'f' ? 'e' : 'f');
+
+        self::assertNotSame(self::GOOD_DIGEST, $almost);
+        self::assertSame(\strlen(self::GOOD_DIGEST), \strlen($almost));
+
+        [$code, $out, $err] = $this->install(
+            ['--platform=linux-x64'],
+            [self::VERSION => ['linux-x64' => $almost]]
+        );
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('Checksum mismatch', $err);
+        self::assertSame('', $out);
+        self::assertFileDoesNotExist($this->root . '/vendor/bin/tailwindcss');
+    }
+
+    /**
+     * Threat T-14: a **junction** at `vendor/bin` pointing outside the project.
+     *
+     * The path still reads as being inside — `<root>/vendor/bin/tailwindcss` —
+     * so a lexical confinement check passes it and the executable lands
+     * wherever the link goes. Only resolving through the filesystem catches it.
+     *
+     * @test
+     */
+    public function aJunctionedDestinationIsRefused(): void
+    {
+        $root = (string) $this->root;
+        $outside = \dirname($root) . '/t18-outside-' . \getmypid();
+
+        if (!@\mkdir($outside, 0777, true)) {
+            self::markTestSkipped('could not create the outside directory');
+        }
+
+        try {
+            \mkdir($root . '/vendor', 0777, true);
+
+            if (!$this->link($root . '/vendor/bin', $outside)) {
+                self::markTestSkipped('this host cannot create a junction or symlink');
+            }
+
+            [$code, $out] = $this->install(
+                ['--platform=linux-x64'],
+                [self::VERSION => ['linux-x64' => self::GOOD_DIGEST]]
+            );
+
+            self::assertSame(2, $code, 'a junctioned destination must be refused');
+            self::assertSame('', $out);
+            self::assertFileDoesNotExist($outside . '/tailwindcss', 'the binary escaped the project');
+        } finally {
+            @\unlink($outside . '/tailwindcss');
+            @\rmdir($outside);
+        }
+    }
+
+    /**
      * An unpinned version is refused **before** the network is touched.
      *
      * @test
@@ -253,6 +320,40 @@ final class T18InstallCliTest extends TestCase
         \rewind($stderr);
 
         return [$code, (string) \stream_get_contents($stdout), (string) \stream_get_contents($stderr)];
+    }
+
+    /**
+     * A directory junction on Windows, a symlink elsewhere.
+     *
+     * Windows `symlink()` needs a privilege ordinary accounts lack, so the
+     * junction is made with `mklink /J`, which does not. Either way the test
+     * skips rather than fails when the host refuses.
+     */
+    private function link(string $link, string $target): bool
+    {
+        if (\DIRECTORY_SEPARATOR !== '\\') {
+            return @\symlink($target, $link);
+        }
+
+        $command = 'cmd /c mklink /J '
+            . \escapeshellarg(\str_replace('/', '\\', $link))
+            . ' '
+            . \escapeshellarg(\str_replace('/', '\\', $target));
+
+        $process = \proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+
+        if (!\is_resource($process)) {
+            return false;
+        }
+
+        foreach ($pipes as $pipe) {
+            \stream_get_contents($pipe);
+            \fclose($pipe);
+        }
+
+        \proc_close($process);
+
+        return \is_dir($link);
     }
 
     /**
