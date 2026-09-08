@@ -340,9 +340,18 @@ final class Tailwind
             $cacheDir = $this->config->cacheDir();
             $timeout = (float) $this->config->cli()['timeout'];
 
+            // Both as closures, not instances: with `driver: php` the resolver
+            // returns before it touches either, and building them eagerly cost
+            // every warm request three `Compiler\Cli\*` class loads plus a read
+            // of `resources/checksums.json` — for a driver the project said it
+            // did not want.
             $this->driverResolver = new DriverResolver(
-                new Environment(),
-                new BinaryVerifier(Checksums::load(), $fs, $root),
+                static function (): Environment {
+                    return new Environment();
+                },
+                static function () use ($fs, $root): BinaryVerifier {
+                    return new BinaryVerifier(Checksums::load(), $fs, $root);
+                },
                 new \TailwindPhp\Compiler\PhpEngineCompiler(),
                 static function (
                     string $binaryPath,

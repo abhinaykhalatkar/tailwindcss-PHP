@@ -52,12 +52,12 @@ final class DriverResolver implements DriverResolverInterface
     private const AUTO = 'auto';
 
     /**
-     * @var EnvironmentInterface
+     * @var EnvironmentInterface|callable():EnvironmentInterface
      */
     private $environment;
 
     /**
-     * @var BinaryVerifier
+     * @var BinaryVerifier|callable():BinaryVerifier
      */
     private $verifier;
 
@@ -72,13 +72,28 @@ final class DriverResolver implements DriverResolverInterface
     private $cliCompilerFactory;
 
     /**
+     * Both collaborators may be given **either** as an instance or as a
+     * no-argument factory, and a web request should use the factory form.
+     *
+     * `driver: php` returns before either is touched, but constructing them
+     * eagerly still cost every warm request three `Compiler\Cli\*` class loads
+     * and a read of `resources/checksums.json` — for a driver the project had
+     * already said it did not want. A closure defers all of that to the first
+     * `auto`/`cli` resolution and costs nothing when that never comes.
+     *
+     * The instance form stays because the committed tests and the CLI wiring
+     * use it, and because a project that *is* on the CLI driver has nothing to
+     * defer.
+     *
+     * @param EnvironmentInterface|callable $environment Instance, or `fn(): EnvironmentInterface`.
+     * @param BinaryVerifier|callable $verifier Instance, or `fn(): BinaryVerifier`.
      * @param callable $cliCompilerFactory `fn(string $binaryPath, string $version): CompilerInterface`.
      *                                     Injected rather than constructed here so resolving a driver
      *                                     never costs the machinery of one that will not be used.
      */
     public function __construct(
-        EnvironmentInterface $environment,
-        BinaryVerifier $verifier,
+        $environment,
+        $verifier,
         CompilerInterface $phpCompiler,
         callable $cliCompilerFactory
     ) {
@@ -86,6 +101,32 @@ final class DriverResolver implements DriverResolverInterface
         $this->verifier = $verifier;
         $this->phpCompiler = $phpCompiler;
         $this->cliCompilerFactory = $cliCompilerFactory;
+    }
+
+    /**
+     * The environment, built on first use when a factory was supplied.
+     */
+    private function environment(): EnvironmentInterface
+    {
+        if (!$this->environment instanceof EnvironmentInterface) {
+            $factory = $this->environment;
+            $this->environment = $factory();
+        }
+
+        return $this->environment;
+    }
+
+    /**
+     * The verifier, built on first use when a factory was supplied.
+     */
+    private function verifier(): BinaryVerifier
+    {
+        if (!$this->verifier instanceof BinaryVerifier) {
+            $factory = $this->verifier;
+            $this->verifier = $factory();
+        }
+
+        return $this->verifier;
     }
 
     /**
@@ -134,7 +175,7 @@ final class DriverResolver implements DriverResolverInterface
         // nothing; locating the binary touches the filesystem, so on the common
         // shared-hosting case — `proc_open` disabled — this returns before any
         // I/O at all.
-        if (!$this->environment->processFunctionAvailable()) {
+        if (!$this->environment()->processFunctionAvailable()) {
             return $this->fallBackToPhp($explicit, 'proc_open is unavailable on this host');
         }
 
@@ -144,7 +185,7 @@ final class DriverResolver implements DriverResolverInterface
             return $this->fallBackToPhp($explicit, 'no Tailwind binary was found');
         }
 
-        $probe = $this->verifier->verify($binary, $cachedProbe, $this->verifyEnabled($cliConfig));
+        $probe = $this->verifier()->verify($binary, $cachedProbe, $this->verifyEnabled($cliConfig));
 
         if (!$probe->verified()) {
             // Worth naming separately from "no binary": the pipeline turns this
@@ -203,7 +244,7 @@ final class DriverResolver implements DriverResolverInterface
             ? \array_values($cliConfig['allowedRoots'])
             : [$projectRoot];
 
-        return $this->environment->binaryPath($configured, $projectRoot, $allowedRoots);
+        return $this->environment()->binaryPath($configured, $projectRoot, $allowedRoots);
     }
 
     /**

@@ -28,20 +28,18 @@ final class WarmRequestBudgetTest extends TestCase
      * The whole warm request: `Tailwind::fromArray()` plus `respond()` on a
      * cached, fresh bundle.
      *
-     * **CCP-A33 sets this at 45 and the measured figure is 49.** The arithmetic
-     * says the ruling was made before the HTTP layer existed to be counted:
-     * TASK-0015 measured the pipeline-only warm request at 41 (16 config
-     * bootstrap + 8 wiring + 17 resolve), TASK-0016's HBC-A19 then allowed the
-     * HTTP layer 8 classes of its own, and 41 + 8 = 49 once `Tailwind` itself is
-     * in and one pipeline class drops out. The 16-class configuration bootstrap
-     * inside that total is the item CCP-A33 explicitly deferred to M3.
+     * **Measured at 46**, down from 49, after TASK-0020 made
+     * `DriverResolver`'s environment and verifier lazy: with `driver: php` the
+     * resolver returns before it touches either, so the three
+     * `Compiler\Cli\*` classes and the `resources/checksums.json` read that
+     * used to be paid on every warm request are gone.
      *
-     * So this pins 50 — the measurement plus one class of headroom — as a
-     * regression guard, and the report asks the orchestrator to correct the
-     * ruling or to fund the M3 cached-config work. Lowering it silently would
-     * mean asserting a number the code cannot meet.
+     * The guard is 47 — the measurement plus one class of headroom — as ruled
+     * in the TASK-0019 round-4 review. What remains above CCP-A33's original 45
+     * is the configuration bootstrap, which that decision explicitly deferred to
+     * M3 (a compiled/cached `Config`).
      */
-    private const TOTAL_CEILING = 50;
+    private const TOTAL_CEILING = 47;
 
     /**
      * HBC-A19, binding and met: the compressed 200 path may hold 8 `Http\`
@@ -50,22 +48,17 @@ final class WarmRequestBudgetTest extends TestCase
     private const HTTP_CEILING = 8;
 
     /**
-     * `Compiler\Cli\*` classes that load even when the driver is `php`.
+     * `Compiler\Cli\*` classes tolerated on a `driver: php` warm request.
      *
-     * `DriverResolver`'s constructor takes an `Environment` and a
-     * `BinaryVerifier` (which needs a `Checksums`) as ordinary arguments, so
-     * they exist before anyone asks which driver is configured. `src/Compiler`
-     * is outside this task's `file_scope`, so this is recorded rather than
-     * fixed — and pinned, so that the *CLI compiler itself* appearing here
-     * would still fail the test.
+     * **None**, now that the resolver builds its environment and verifier on
+     * first use. This was three entries while `DriverResolver` took them as
+     * ordinary constructor arguments; the list is kept — empty — because an
+     * empty allowance is the assertion, and a future refactor that reintroduces
+     * one has to add it here deliberately rather than by accident.
      *
      * @var list<string>
      */
-    private const CLI_CONSTRUCTOR_DEPENDENCIES = [
-        'TailwindPhp\Compiler\Cli\BinaryVerifier',
-        'TailwindPhp\Compiler\Cli\Checksums',
-        'TailwindPhp\Compiler\Cli\Environment',
-    ];
+    private const CLI_CONSTRUCTOR_DEPENDENCIES = [];
 
     /**
      * @var string|null
