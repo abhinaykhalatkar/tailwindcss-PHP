@@ -192,6 +192,39 @@ final class LegacyHandlerTest extends TestCase
     }
 
     /**
+     * A configured plain-CSS entry is never handed to the scss stage just
+     * because a `main.scss` happens to sit beside it. The test project has
+     * exactly this layout (Bootstrap's `main.scss` next to a Tailwind
+     * `tailwind.css` named in `config/tailwind.php`), and the first live build
+     * failed with scssphp rejecting `@import … layer(theme)`.
+     *
+     * @covers-requirement FR-PIPE-3 FR-PIPE-4
+     *
+     * @test
+     */
+    public function aConfiguredEntryIsNotPreprocessedBecauseAMainScssExists(): void
+    {
+        \unlink($this->root . '/assets/styles/main.css');
+        $this->write('assets/styles/main.scss', "\$c: red;\n.a { color: \$c; }\n");
+        $this->write(
+            'assets/styles/tailwind.css',
+            "@layer theme, base, components, utilities;\n@import \"tailwindcss/theme\" layer(theme);\n"
+        );
+        $this->write(
+            'config/tailwind.php',
+            "<?php\n\nreturn ['input' => 'assets/styles/tailwind.css', 'log_level' => 'emergency'];\n"
+        );
+
+        $content = $this->handler()->getContent();
+
+        $manifest = $this->manifest();
+        self::assertNotNull($manifest, 'the configured entry must build');
+        self::assertNull($manifest['last_error'] ?? null);
+        self::assertStringNotContainsString('build failed', $content);
+        self::assertStringNotContainsString('plain CSS', $content);
+    }
+
+    /**
      * HBC-A9 / doc 11: `config/tailwind.php` wins over the file beside the
      * stylesheets. Both are planted, and only one can supply the safelist.
      *

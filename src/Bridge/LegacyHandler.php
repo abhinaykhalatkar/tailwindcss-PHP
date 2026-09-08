@@ -73,7 +73,7 @@ final class LegacyHandler
      *
      * @var list<string>
      */
-    private const INFERRED = ['project_root', 'input', 'watch', 'cache_dir', 'debug'];
+    private const INFERRED = ['project_root', 'watch', 'cache_dir', 'debug'];
 
     /**
      * @var string
@@ -190,9 +190,17 @@ final class LegacyHandler
     {
         $config = $this->loadConfigFile($root, $path);
 
+        // The entry is inferred only when the config file does not name one.
+        // Inferring it unconditionally would let a `main.scss` beside the
+        // stylesheets switch the scss stage on for a *configured* plain-CSS
+        // entry, which is how the test project's `tailwind.css` first met
+        // scssphp ("`@import … layer(theme)` isn't allowed in plain CSS").
+        if (!\array_key_exists('input', $config)) {
+            $config['input'] = $this->entry($root, $path, $config);
+        }
+
         $inferred = [
             'project_root' => $root,
-            'input' => $this->entry($root, $path, $config),
             'watch' => [$path],
             'cache_dir' => self::CACHE_DIR,
             'debug' => $debug,
