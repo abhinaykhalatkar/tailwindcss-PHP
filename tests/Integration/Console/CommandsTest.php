@@ -266,9 +266,154 @@ final class CommandsTest extends TestCase
             ['bin', 'candidates', '--file=../../../etc/passwd']
         );
 
-        self::assertSame(1, $code);
+        // Exit 2: a path that will not resolve inside the project is a usage
+        // error, not the operation failing, and a CI script branches on that.
+        self::assertSame(2, $code);
         self::assertSame('', $out, 'nothing outside the project may be printed');
         self::assertStringNotContainsString('root:', $err);
+    }
+
+    /**
+     * Round-2 item 3 (HBC-A23): a **failed** forced build must leave the
+     * previous manifest exactly as it found it.
+     *
+     * Deleting it — the first implementation — meant a forced build that failed
+     * left the project with no freshness record at all, so live requests fell
+     * from "serve the previous stylesheet" to "serve the constant 500 body".
+     * A forced rebuild that fails was strictly worse for the site than an
+     * unforced one.
+     *
+     * @test
+     */
+    public function aFailedForcedBuildRestoresThePreviousManifest(): void
+    {
+        $this->invoke(new BuildCommand($this->root()), ['bin', 'build']);
+
+        $manifestPath = $this->root() . '/cache/tailwind/app.meta.json';
+        $before = (string) \file_get_contents($manifestPath);
+
+        $this->project()->writeFile(
+            'assets/styles/main.css',
+            "@import \"tailwindcss\";\n" . \str_repeat("/* padding */\n", 200)
+        );
+        $this->writeConfig(['limits' => ['max_total_css' => 1024], 'log_level' => 'emergency']);
+
+        [$code] = $this->invoke(new BuildCommand($this->root()), ['bin', 'build', '--force']);
+
+        self::assertSame(1, $code);
+        self::assertFileExists($manifestPath, 'the previous manifest was destroyed by a failed forced build');
+        self::assertSame($before, (string) \file_get_contents($manifestPath), 'the manifest was not restored intact');
+        self::assertCount(
+            0,
+            \glob($this->root() . '/cache/tailwind/*.force-*') ?: [],
+            'the set-aside copy was left behind'
+        );
+    }
+
+    /**
+     * And a successful forced build leaves exactly one manifest.
+     *
+     * @test
+     */
+    public function aSuccessfulForcedBuildLeavesOneManifest(): void
+    {
+        $this->invoke(new BuildCommand($this->root()), ['bin', 'build']);
+        [$code] = $this->invoke(new BuildCommand($this->root()), ['bin', 'build', '--force']);
+
+        self::assertSame(0, $code);
+        self::assertFileExists($this->root() . '/cache/tailwind/app.meta.json');
+        self::assertCount(0, \glob($this->root() . '/cache/tailwind/*.force-*') ?: []);
+    }
+
+    /**
+     * Threat T-06, and the mutant the review found alive: nothing in `build`'s
+     * output may be an absolute path.
+     *
+     * @test
+     */
+    public function buildPrintsNoAbsolutePath(): void
+    {
+        [$code, $out] = $this->invoke(new BuildCommand($this->root()), ['bin', 'build']);
+
+        self::assertSame(0, $code);
+        self::assertStringNotContainsString($this->root(), $out, 'the project root was printed');
+        self::assertDoesNotMatchRegularExpression('#[A-Za-z]:[\\\\/]#', $out, 'a Windows path was printed');
+        self::assertStringContainsString('cache/tailwind/app.', $out, 'the relative path should still be shown');
+    }
+
+    /**
+     * HBC-A15: with fingerprinting off, the plain route **is** the answer.
+     * Deciding "no manifest" from the URL's shape made a correctly-configured
+     * project exit 1 for a correct URL.
+     *
+     * @test
+     */
+    public function urlSucceedsWithFingerprintingOff(): void
+    {
+        $this->invoke(new BuildCommand($this->root()), ['bin', 'build']);
+        $this->writeConfig(['fingerprint' => false]);
+
+        [$code, $out] = $this->invoke(new UrlCommand($this->root()), ['bin', 'url']);
+
+        self::assertSame(0, $code);
+        self::assertSame("assets/styles.css\n", $out);
+    }
+
+    /**
+     * `--unknown` reads the manifest's warnings. The stub engine emits none, so
+     * the row seeds one rather than asserting on an empty list, which would
+     * pass against a command that never looked.
+     *
+     * @test
+     */
+    public function candidatesUnknownListsTheRecordedWarnings(): void
+    {
+        $this->invoke(new BuildCommand($this->root()), ['bin', 'build']);
+
+        $path = $this->root() . '/cache/tailwind/app.meta.json';
+        $manifest = \json_decode((string) \file_get_contents($path), true);
+        self::assertIsArray($manifest);
+
+        // The shape is `Diagnostic::toArray()` (CCP-A25) — the manifest
+        // validator rejects anything else, and a rejected manifest would make
+        // this row fail for the wrong reason.
+        $manifest['warnings'] = [[
+            'level' => 'warning',
+            'code' => 'W_UNKNOWN_UTILITY',
+            'message' => 'unknown utility "wobble-9"',
+            'file' => 'templates/index.twig',
+            'line' => 1,
+            'candidate' => 'wobble-9',
+        ]];
+
+        \file_put_contents($path, (string) \json_encode($manifest));
+
+        [$code, $out] = $this->invoke(new CandidatesCommand($this->root()), ['bin', 'candidates', '--unknown']);
+
+        self::assertSame(0, $code);
+        self::assertStringContainsString('wobble-9', $out);
+        self::assertStringContainsString('templates/index.twig', $out);
+    }
+
+    /**
+     * Round-2 item 7: a control byte in an argument must not reach the
+     * terminal. An ESC there repositions the cursor or recolours the session;
+     * a NUL or CR rewrites the line the reader thought they were looking at.
+     *
+     * @test
+     */
+    public function controlBytesInArgumentsNeverReachTheTerminal(): void
+    {
+        [, $out, $err] = $this->invoke(
+            new BuildCommand($this->root()),
+            ['bin', 'build', "--bundle=\x1b[31mapp\x00\x07"]
+        );
+
+        foreach ([$out, $err] as $stream) {
+            self::assertStringNotContainsString("\x1b", $stream, 'an escape byte reached the terminal');
+            self::assertStringNotContainsString("\x00", $stream);
+            self::assertStringNotContainsString("\x07", $stream);
+        }
     }
 
     // ---------------------------------------------------------- ConfigLocator
@@ -361,6 +506,44 @@ final class CommandsTest extends TestCase
 
         self::assertNotNull($thrown, 'a config inside the cache directory must be refused');
         self::assertFileDoesNotExist($marker, 'the planted config executed');
+    }
+
+    /**
+     * The **second** T-08 gate, and the mutant the review found alive.
+     *
+     * The pre-load gate knows only the conventional `cache/tailwind`. A project
+     * that configures a different cache directory and keeps its config inside
+     * it gets past that one; the post-build re-check is what refuses it. This
+     * row is the only thing that exercises that branch — with it removed, the
+     * command succeeds.
+     *
+     * @test
+     */
+    public function aConfigInsideANonDefaultCacheDirectoryIsRefusedAfterLoading(): void
+    {
+        $root = $this->root();
+
+        $this->ensureDirectory($root . '/var/cache');
+        \file_put_contents(
+            $root . '/var/cache/tailwind.php',
+            "<?php\n\nreturn " . \var_export([
+                'project_root' => $root,
+                'driver' => 'php',
+                'input' => 'assets/styles/main.css',
+                'sources' => ['templates'],
+                'cache_dir' => 'var/cache',
+                'bundles' => ['app' => []],
+            ], true) . ";\n"
+        );
+
+        [$code, $out, $err] = $this->invoke(
+            new BuildCommand($root),
+            ['bin', 'build', '--config=var/cache/tailwind.php']
+        );
+
+        self::assertSame(2, $code, 'a config inside the configured cache directory must be refused');
+        self::assertSame('', $out);
+        self::assertStringContainsString('cache', $err);
     }
 
     // ----------------------------------------------------------------- harness

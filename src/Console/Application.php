@@ -9,6 +9,7 @@ use TailwindPhp\Console\Command\CandidatesCommand;
 use TailwindPhp\Console\Command\ClearCommand;
 use TailwindPhp\Console\Command\CommandInterface;
 use TailwindPhp\Console\Command\UrlCommand;
+use TailwindPhp\Exception\ConfigurationException;
 use TailwindPhp\Exception\ConsoleException;
 use TailwindPhp\Exception\LogSafety;
 use TailwindPhp\Version;
@@ -36,6 +37,11 @@ use TailwindPhp\Version;
  */
 final class Application
 {
+    /**
+     * `levenshtein()` refuses strings longer than this and returns -1.
+     */
+    private const MAX_SUGGESTION_BYTES = 255;
+
     /**
      * @var array<string, CommandInterface>
      */
@@ -100,6 +106,10 @@ final class Application
         $command = $this->commands[$name];
 
         try {
+            // Re-parsed now that the command is known: only it can say which of
+            // its options take a value, and the first pass had to guess. See
+            // Input::fromArgv().
+            $input = Input::fromArgv($argv, $command->options());
             $input->bind($command->options(), $name);
 
             return $command->run($input, $output);
@@ -107,6 +117,19 @@ final class Application
             $output->error($e->getMessage());
 
             return $e->exitCode();
+        } catch (ConfigurationException $e) {
+            // Exit 2, not 1: this is "you called this wrong", and a CI script
+            // branches on the difference. Without this arm the same T-08
+            // refusal exits 2 when the post-build gate catches it and 1 when
+            // the pre-load gate does — the code would describe which guard
+            // fired rather than what went wrong.
+            //
+            // `PathException` extends this one, so a path that will not resolve
+            // inside its root lands here too, which is right: that is a
+            // configuration problem, not the operation failing.
+            $output->error(LogSafety::scrubText($e->getMessage()));
+
+            return 2;
         } catch (\Throwable $e) {
             // Scrubbed: the message may quote a path, and this one is going to
             // a terminal that may be a CI log (T-06).
@@ -160,12 +183,17 @@ final class Application
         $best = null;
         $bestDistance = \PHP_INT_MAX;
 
-        foreach (\array_keys($this->commands) as $candidate) {
-            $distance = \levenshtein($name, $candidate);
+        // `levenshtein()` returns -1 above 255 bytes, which compares as nearer
+        // than everything — so without this guard every long unknown command
+        // was confidently reported as meaning "build".
+        if (\strlen($name) <= self::MAX_SUGGESTION_BYTES) {
+            foreach (\array_keys($this->commands) as $candidate) {
+                $distance = \levenshtein($name, $candidate);
 
-            if ($distance < $bestDistance) {
-                $bestDistance = $distance;
-                $best = $candidate;
+                if ($distance >= 0 && $distance < $bestDistance) {
+                    $bestDistance = $distance;
+                    $best = $candidate;
+                }
             }
         }
 

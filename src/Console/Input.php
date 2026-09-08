@@ -69,12 +69,20 @@ final class Input
     }
 
     /**
+     * Parsing happens twice: once with only the global options known, to find
+     * the command name, and once the {@see Application} has looked that command
+     * up and can say which of *its* options take a value. Without the second
+     * pass `build --driver cli` reads `--driver` as a flag and `cli` as a stray
+     * positional — the command runs with the wrong driver and reports success.
+     *
      * @param list<string> $argv The raw arguments **including** `$argv[0]`,
      *                           which is dropped.
+     * @param array<string, bool> $declared The command's own options, when
+     *                                      known: name => takes a value.
      *
-     * @throws ConsoleException When an option is malformed.
+     * @throws ConsoleException When an option that needs a value has none.
      */
-    public static function fromArgv(array $argv): self
+    public static function fromArgv(array $argv, array $declared = []): self
     {
         $arguments = \array_slice($argv, 1);
         $positionals = [];
@@ -108,11 +116,15 @@ final class Input
                 continue;
             }
 
-            // `--key value` only when the option is known to take one and the
-            // next token is not itself an option; otherwise it is a flag. This
-            // is why the option table is declared rather than inferred: without
-            // it, `--force build` would swallow the command name.
-            if (self::takesValue($name) && $i + 1 < $count && !self::looksLikeOption($arguments[$i + 1])) {
+            // `--key value` only when the option is declared to take one and
+            // the next token is not itself an option; otherwise it is a flag.
+            // This is why the option table is declared rather than inferred:
+            // without it, `--force build` would swallow the command name.
+            if (self::takesValue($name, $declared)) {
+                if ($i + 1 >= $count || self::looksLikeOption($arguments[$i + 1])) {
+                    throw new ConsoleException(\sprintf('The option "--%s" needs a value.', $name));
+                }
+
                 $options[$name] = $arguments[++$i];
 
                 continue;
@@ -159,7 +171,7 @@ final class Input
             $suggestion = self::closest($name, \array_keys($known));
 
             throw new ConsoleException(
-                \sprintf('Unknown option "--%s".', $name)
+                \sprintf('Unknown option "%s".', self::spell($name))
                 . ($suggestion === null ? '' : \sprintf(' Did you mean "--%s"?', $suggestion)),
                 $command
             );
@@ -244,7 +256,15 @@ final class Input
 
         $short = \substr($argument, 1);
 
-        return self::SHORT[$short] ?? $short;
+        if (isset(self::SHORT[$short])) {
+            return self::SHORT[$short];
+        }
+
+        // A single-dash long option is not a spelling of the double-dash one:
+        // `-force` keeps its dash so it fails `bind()` as an unknown option
+        // rather than quietly acting as `--force`. Accepting both spellings
+        // would mean `-config=x` and `--config=x` had to stay in step forever.
+        return $argument;
     }
 
     private static function looksLikeOption(string $argument): bool
@@ -252,14 +272,24 @@ final class Input
         return $argument !== '' && $argument !== '-' && $argument[0] === '-';
     }
 
-    private static function takesValue(string $name): bool
+    /**
+     * @param array<string, bool> $declared The command's own options.
+     */
+    private static function takesValue(string $name, array $declared): bool
     {
-        // Only the global value-taking options are known at parse time; a
-        // command's own `--key value` form is handled by the same rule because
-        // every command option in doc 21 that takes a value is spelled with an
-        // `=` in the documentation. `--key value` for those still works when
-        // the command declares it, via `value()` falling back to the flag.
+        if (\array_key_exists($name, $declared)) {
+            return $declared[$name];
+        }
+
         return self::GLOBAL_OPTIONS[$name] ?? false;
+    }
+
+    /**
+     * Print a name back the way it was written.
+     */
+    private static function spell(string $name): string
+    {
+        return $name !== '' && $name[0] === '-' ? $name : '--' . $name;
     }
 
     /**
@@ -272,10 +302,16 @@ final class Input
         $best = null;
         $bestDistance = \PHP_INT_MAX;
 
+        // Above 255 bytes `levenshtein()` returns -1, which would compare as
+        // nearer than every real candidate.
+        if (\strlen($name) > 255) {
+            return null;
+        }
+
         foreach ($candidates as $candidate) {
             $distance = \levenshtein($name, $candidate);
 
-            if ($distance < $bestDistance) {
+            if ($distance >= 0 && $distance < $bestDistance) {
                 $bestDistance = $distance;
                 $best = $candidate;
             }

@@ -92,21 +92,30 @@ final class CandidatesCommand extends AbstractCommand
      */
     private function fromFile(string $file, string $projectRoot, int $maxBytes, Output $output): int
     {
-        $absolute = $file;
-        $normalized = \str_replace('\\', '/', $file);
-
-        if ($normalized === '' || ($normalized[0] !== '/' && !(isset($normalized[1]) && $normalized[1] === ':'))) {
-            $absolute = \rtrim($projectRoot, '/') . '/' . $normalized;
-        }
-
-        // T-02: the argument becomes a path, so it is confined before it is
-        // opened, not after.
-        $confined = Path::confine($absolute, $projectRoot);
+        // T-02, resolved rather than merely compared. `Path::confine()` works on
+        // the string, so a junction *inside* the project pointing outside it
+        // passes — the path is textually within the root and the bytes come
+        // from elsewhere. `Path::resolve()` follows the filesystem first, which
+        // is the check that actually holds.
+        $confined = Path::resolve($projectRoot, $file, [$projectRoot], true);
 
         $fs = new Filesystem();
 
         if (!$fs->isFile($confined)) {
             throw new ConsoleException(\sprintf('No such file: %s', $output->path($confined)));
+        }
+
+        $stat = $fs->stat($confined);
+
+        if ($stat !== null && $stat['size'] > $maxBytes) {
+            // `Filesystem::read()` truncates silently at the cap, so without
+            // this the answer would be "these are the candidates" when it is
+            // really "these are the candidates in the first N bytes".
+            $output->warn(\sprintf(
+                'Only the first %d bytes of %s were scanned (limits.max_file_size).',
+                $maxBytes,
+                $output->path($confined)
+            ));
         }
 
         $candidates = (new CandidateExtractor())->extract($fs->read($confined, $maxBytes));

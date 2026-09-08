@@ -124,6 +124,15 @@ final class Output
      */
     public function line(string $text = ''): void
     {
+        $this->raw(self::sanitise($text));
+    }
+
+    /**
+     * Write a line that has already been sanitised, so a caller may wrap it in
+     * colour without the escape bytes being stripped again.
+     */
+    private function raw(string $text): void
+    {
         if ($this->json || $this->quiet) {
             return;
         }
@@ -164,14 +173,16 @@ final class Output
     {
         $glyph = ['ok' => '[ok]', 'warn' => '[warn]', 'error' => '[fail]'];
 
-        $this->line(
+        // Colour is applied *around* the sanitised text, so the escape bytes
+        // this class chose survive while any that arrived from outside do not.
+        $this->raw(
             $this->colour($state, $glyph[$state] ?? '[ ]')
-            . ' ' . $label
-            . ($detail === '' ? '' : ': ' . $detail)
+            . ' ' . self::sanitise($label)
+            . ($detail === '' ? '' : ': ' . self::sanitise($detail))
         );
 
         if ($remedy !== '') {
-            $this->line('       → ' . $remedy);
+            $this->raw('       → ' . self::sanitise($remedy));
         }
     }
 
@@ -182,7 +193,7 @@ final class Output
      */
     public function warn(string $text): void
     {
-        $this->write($this->stderr, $this->colour('warn', 'warning: ') . $text . "\n");
+        $this->write($this->stderr, $this->colour('warn', 'warning: ') . self::sanitise($text) . "\n");
     }
 
     /**
@@ -190,7 +201,7 @@ final class Output
      */
     public function error(string $text): void
     {
-        $this->write($this->stderr, $this->colour('error', 'error: ') . $text . "\n");
+        $this->write($this->stderr, $this->colour('error', 'error: ') . self::sanitise($text) . "\n");
     }
 
     /**
@@ -270,5 +281,39 @@ final class Output
     private function write($stream, string $text): void
     {
         \fwrite($stream, $text);
+    }
+
+    /**
+     * Strip the control bytes out of anything that came from outside.
+     *
+     * Option names, bundle names, paths and prefixes all reach the terminal,
+     * and every one of them is ultimately a command-line argument. An escape
+     * byte in one repositions the cursor, recolours the rest of the session, or
+     * — in a few terminals — puts characters into the input buffer; a NUL or a
+     * carriage return rewrites the line the reader thought they were looking
+     * at. None of that is expressible in a bundle name we generated, so the
+     * bytes are simply removed rather than escaped: there is nothing to
+     * preserve.
+     *
+     * The trailing newline this class adds is appended *after* this runs, so it
+     * is never at risk.
+     */
+    private static function sanitise(string $text): string
+    {
+        $safe = '';
+        $length = \strlen($text);
+
+        for ($i = 0; $i < $length; $i++) {
+            $byte = $text[$i];
+            $ordinal = \ord($byte);
+
+            if ($ordinal < 0x20 || $ordinal === 0x7F) {
+                continue;
+            }
+
+            $safe .= $byte;
+        }
+
+        return $safe;
     }
 }

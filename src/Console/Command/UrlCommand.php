@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace TailwindPhp\Console\Command;
 
+use TailwindPhp\Cache\Manifest;
 use TailwindPhp\Console\Input;
 use TailwindPhp\Console\Output;
+use TailwindPhp\Support\Filesystem;
 
 /**
  * Print the URL a page should link to (design doc 21; FR-HTTP-8).
@@ -50,11 +52,11 @@ final class UrlCommand extends AbstractCommand
             'build' => $build,
         ]);
 
-        $plain = $tailwind->config()->bundle($bundle)->publicRoute();
-
-        if (!$build && \substr($url, -\strlen($plain)) === $plain) {
-            // The helper fell back to the plain route, which means there is no
-            // manifest to take a fingerprint from.
+        // Decided from the manifest, not from the URL's shape. Under
+        // `fingerprint: false` the plain route **is** the answer (HBC-A15), and
+        // comparing the string made the two cases indistinguishable — a
+        // correctly-configured project got exit 1 for a correct URL.
+        if (!$build && !$this->hasManifest($tailwind, $bundle)) {
             $output->error(
                 'No manifest for bundle "' . $bundle . '". Run "tailwind-php build" first, or pass --build.'
             );
@@ -71,5 +73,13 @@ final class UrlCommand extends AbstractCommand
         $output->line($url);
 
         return 0;
+    }
+
+    private function hasManifest(\TailwindPhp\Tailwind $tailwind, string $bundle): bool
+    {
+        $path = \rtrim(\str_replace('\\', '/', $tailwind->config()->cacheDir()), '/')
+            . '/' . $bundle . '.meta.json';
+
+        return Manifest::load($path, new Filesystem()) !== null;
     }
 }

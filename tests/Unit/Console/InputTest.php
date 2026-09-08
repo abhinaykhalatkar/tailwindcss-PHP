@@ -90,16 +90,82 @@ final class InputTest extends TestCase
     /**
      * A value-taking option must not swallow the next token when that token is
      * itself an option — otherwise `--config --json` silently sets the config
-     * file to "--json".
+     * file to "--json". It is an error rather than a shrug: the user asked for
+     * a config file and did not name one, and building from the default
+     * instead is how a deploy publishes from the wrong file.
      *
      * @test
      */
-    public function anOptionDoesNotSwallowAnotherOption(): void
+    public function aValueTakingOptionWithNoValueIsAnError(): void
     {
-        $input = Input::fromArgv(['bin', 'build', '--config', '--json']);
+        try {
+            Input::fromArgv(['bin', 'build', '--config', '--json']);
+            self::fail('expected a ConsoleException');
+        } catch (ConsoleException $e) {
+            self::assertSame(2, $e->exitCode());
+            self::assertStringContainsString('--config', $e->getMessage());
+            self::assertStringContainsString('needs a value', $e->getMessage());
+        }
+    }
 
-        self::assertTrue($input->flag('json'));
-        self::assertNull($input->value('config'));
+    /**
+     * The same, at the end of the line.
+     *
+     * @test
+     */
+    public function aValueTakingOptionAtTheEndIsAnError(): void
+    {
+        $this->expectException(ConsoleException::class);
+
+        Input::fromArgv(['bin', 'candidates', '--file'], ['file' => true]);
+    }
+
+    /**
+     * A command's own value-taking option is only known once the command is:
+     * `build --driver cli` has to reach the command as `driver=cli`, not as a
+     * flag plus a stray positional.
+     *
+     * @test
+     */
+    public function aCommandsOwnOptionTakesItsValue(): void
+    {
+        $input = Input::fromArgv(['bin', 'build', '--driver', 'cli'], ['driver' => true]);
+
+        self::assertSame('cli', $input->value('driver'));
+        self::assertSame([], $input->arguments(), 'the value was left behind as a positional');
+    }
+
+    /**
+     * Without the command's table the same line parses differently — which is
+     * exactly why `Application` re-parses once it has resolved the command.
+     *
+     * @test
+     */
+    public function withoutTheCommandsTableTheValueLooksLikeAPositional(): void
+    {
+        $input = Input::fromArgv(['bin', 'build', '--driver', 'cli']);
+
+        self::assertTrue($input->flag('driver'));
+        self::assertSame(['cli'], $input->arguments());
+    }
+
+    /**
+     * A single-dash long option is not a spelling of the double-dash one.
+     * Accepting both would mean the two had to stay in step forever.
+     *
+     * @test
+     */
+    public function aSingleDashLongOptionIsUnknown(): void
+    {
+        $input = Input::fromArgv(['bin', 'build', '-force']);
+
+        try {
+            $input->bind(['force' => false], 'build');
+            self::fail('expected a ConsoleException');
+        } catch (ConsoleException $e) {
+            self::assertSame(2, $e->exitCode());
+            self::assertStringContainsString('-force', $e->getMessage());
+        }
     }
 
     /**
