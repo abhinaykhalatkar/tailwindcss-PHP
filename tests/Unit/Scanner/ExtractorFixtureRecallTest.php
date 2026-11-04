@@ -6,20 +6,87 @@ namespace TailwindPhp\Tests\Unit\Scanner;
 
 use PHPUnit\Framework\TestCase;
 use TailwindPhp\Scanner\CandidateExtractor;
+use TailwindPhp\Tests\Conformance\Support\CorpusPaths;
 
 /**
  * Recall against real-world-shaped fixtures (design doc 09 §Tests, ADR-019):
  * every genuine Tailwind-looking class embedded in each fixture must survive
- * extraction. This is a recall floor, not an exact-match golden — the
- * CLI-derived conformance suite that checks precision too lands in M2
- * (design doc 16 §Conformance suite); until then this is the only check that
- * these fixtures work at all.
+ * extraction. Two checks:
+ *
+ * - **the CLI goldens** (M2, TASK-0041): `golden/extractor/<stem>.json` is
+ *   the pinned Tailwind CLI's own answer for each fixture — the candidates it
+ *   found that produce CSS — and doc 09 requires 100 % recall of it; the
+ *   failure message gives each fixture's recall and what was missed.
+ *   Precision is reported by doc 09, not enforced, so extra candidates pass;
+ * - **the hand-pinned lists** (M1), kept: they name the classes a reviewer
+ *   expected before any golden existed, including the `classList.add(...)`
+ *   regression of review round 1.
  *
  * @covers-requirement FR-SCAN-2
  */
 final class ExtractorFixtureRecallTest extends TestCase
 {
     private const FIXTURES_DIR = __DIR__ . '/../../Fixtures/extractor';
+
+    /**
+     * The fixtures with a committed CLI golden (design doc 16 §Corpus layout).
+     */
+    private const GOLDEN_FIXTURES = 5;
+
+    /**
+     * @test
+     *
+     * @dataProvider goldenFixtures
+     */
+    public function theExtractorRecallsEveryCandidateTheCliFound(string $key): void
+    {
+        $paths = new CorpusPaths();
+        $golden = \json_decode(self::read($paths->goldenPath($key)), true, 4, \JSON_THROW_ON_ERROR);
+
+        self::assertIsArray($golden);
+        self::assertNotSame([], $golden, $key . ': the golden lists no candidate');
+
+        $extracted = (new CandidateExtractor())->extract(self::read($paths->sourcePath($key)));
+        $missed = \array_values(\array_diff($golden, $extracted));
+        $found = \count($golden) - \count($missed);
+
+        self::assertSame([], $missed, \sprintf(
+            '%s: recall %.1f %% (%d of %d CLI candidates; doc 09 requires 100 %%), %d extracted in all; missed: %s',
+            $key,
+            $found / \count($golden) * 100,
+            $found,
+            \count($golden),
+            \count($extracted),
+            \implode(' ', $missed)
+        ));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function goldenFixtures(): array
+    {
+        $cases = [];
+
+        foreach ((new CorpusPaths())->select('extractor') as $key) {
+            $cases[$key] = [$key];
+        }
+
+        return $cases;
+    }
+
+    /** @test */
+    public function everyFixtureHasACommittedGolden(): void
+    {
+        $paths = new CorpusPaths();
+        $keys = $paths->select('extractor');
+
+        self::assertCount(self::GOLDEN_FIXTURES, $keys);
+
+        foreach ($keys as $key) {
+            self::assertFileExists($paths->goldenPath($key));
+        }
+    }
 
     /**
      * @test
@@ -90,5 +157,14 @@ final class ExtractorFixtureRecallTest extends TestCase
         foreach (self::recallCases() as [$filename]) {
             self::assertFileExists(self::FIXTURES_DIR . '/' . $filename);
         }
+    }
+
+    private static function read(string $path): string
+    {
+        $contents = \file_get_contents($path);
+
+        self::assertIsString($contents, \basename($path) . ' is readable');
+
+        return $contents;
     }
 }
