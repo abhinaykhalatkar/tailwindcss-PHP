@@ -40,9 +40,10 @@ interface FamilyHandlerInterface
      * compiler adds every `--tw-*` property the body declares by itself, so a
      * handler lists only the ones the utility reads without declaring.
      *
+     * Returns `[nodes, usedVars]` or `[nodes, usedVars, properties]`, or null
+     * when the handler does not take this candidate.
+     *
      * @return array{0: list<\TailwindPhp\Engine\Css\Node\Node>, 1: list<string>, 2?: list<string>}|null
-     *                                                                                                   `[nodes, usedVars]` or `[nodes, usedVars, properties]`,
-     *                                                                                                   or null when the handler does not take this candidate
      */
     public function run(string $name, Definition $definition, Candidate $candidate, ThemeRegistry $theme): ?array;
 }
