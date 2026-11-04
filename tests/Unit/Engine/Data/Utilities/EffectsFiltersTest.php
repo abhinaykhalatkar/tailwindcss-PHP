@@ -1,0 +1,258 @@
+<?php
+
+declare(strict_types=1);
+
+namespace TailwindPhp\Tests\Unit\Engine\Data\Utilities;
+
+use PHPUnit\Framework\TestCase;
+use TailwindPhp\Engine\Candidate\Parser as CandidateParser;
+use TailwindPhp\Engine\Css\Node\AtRule;
+use TailwindPhp\Engine\Css\Node\Declaration;
+use TailwindPhp\Engine\Css\Node\Node;
+use TailwindPhp\Engine\Css\Node\Rule;
+use TailwindPhp\Engine\Data\DefaultTheme;
+use TailwindPhp\Engine\Data\Utilities\EffectsFilters;
+use TailwindPhp\Engine\Theme\ThemeRegistry;
+use TailwindPhp\Engine\Utility\Compiler;
+use TailwindPhp\Engine\Utility\Definition;
+use TailwindPhp\Engine\Utility\Registry;
+use TailwindPhp\Tests\Conformance\Support\Inventory;
+
+/**
+ * The EffectsFilters rows agree with the hand-written inventory (the denominator of
+ * the 98 % gate, ENG-A12): the same 5 roots, and for each the same kind,
+ * theme namespaces, bare kind, fraction, negative, arbitrary and modifier
+ * flags. The inventory is never derived from the rows; a disagreement means
+ * one of them is wrong.
+ */
+final class EffectsFiltersTest extends TestCase
+{
+    /** @test */
+    public function theRowsAreTheInventorysEffectsFiltersRoots(): void
+    {
+        $inventory = new Inventory();
+        $roots = $inventory->families()['effects-filters'];
+
+        self::assertCount(5, $roots);
+        self::assertSame($roots, \array_keys(EffectsFilters::rows()), 'same roots, same (catalogue) order');
+    }
+
+    /**
+     * @test
+     *
+     * @dataProvider roots
+     */
+    public function eachRowsFlagsAgreeWithTheInventory(string $root): void
+    {
+        $entry = (new Inventory())->entry($root);
+        $definition = Definition::fromRow($root, EffectsFilters::rows()[$root]);
+        $functional = [];
+
+        foreach ($definition->definitions() as $sub) {
+            if ($sub->staticDeclarations() === null && $sub->isFunctional()) {
+                $functional[] = $sub;
+            }
+        }
+
+        self::assertSame($entry['kind'] === 'functional', $definition->isFunctional(), 'kind');
+
+        $theme = [];
+        $bare = null;
+        $fraction = false;
+        $negative = false;
+        $arbitrary = false;
+        $modifier = null;
+
+        foreach ($functional as $sub) {
+            foreach ($sub->theme() as $namespace) {
+                $theme[] = '--' . $namespace . '-*';
+            }
+
+            $bare = $bare ?? $sub->bare();
+            $fraction = $fraction || $sub->fraction();
+            $negative = $negative || $sub->negative();
+            $arbitrary = $arbitrary || $sub->acceptsArbitrary();
+            $modifier = $modifier ?? $sub->modifier();
+        }
+
+        // A functional root without a numeric bare kind is keyword-only.
+        if ($bare === null && $functional !== []) {
+            $bare = 'keyword';
+        }
+
+        self::assertSame($entry['theme'], $theme, 'theme');
+        self::assertSame($entry['bare'], $bare, 'bare');
+        self::assertSame($entry['fraction'], $fraction, 'fraction');
+        self::assertSame($entry['negative'], $negative, 'negative');
+        self::assertSame($entry['arbitrary'], $arbitrary, 'arbitrary');
+        self::assertSame($entry['modifier'], $modifier, 'modifier');
+
+        // A root the inventory counts as valid alone has a static form.
+        $alone = \in_array('static', $entry['forms'], true);
+        $hasStatic = !$definition->isFunctional();
+
+        foreach ($definition->definitions() as $sub) {
+            $hasStatic = $hasStatic || $sub->staticDeclarations() !== null || $sub->defaultValue() !== null;
+        }
+
+        self::assertSame($alone, $hasStatic, 'static form');
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function roots(): array
+    {
+        $cases = [];
+
+        foreach (\array_keys(EffectsFilters::rows()) as $root) {
+            $cases[$root] = [$root];
+        }
+
+        return $cases;
+    }
+
+    /**
+     * Values the generated corpus does not sample, checked one by one against
+     * the pinned CLI (TASK-0039).
+     *
+     * @test
+     *
+     * @dataProvider cliValues
+     */
+    public function valuesTheCorpusDoesNotSampleAgreeWithTheCli(string $candidate, ?string $expected): void
+    {
+        self::assertSame($expected, self::css($candidate), $candidate);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string|null}>
+     */
+    public static function cliValues(): array
+    {
+        return [
+            'opacity has no unit' => ['opacity-0.5', 'opacity:0.5%'],
+            'opacity from a number' => ['opacity-101', 'opacity:101%'],
+            'opacity takes no modifier' => ['opacity-50/50', null],
+            'opacity is never negative' => ['-opacity-5', null],
+            'a blend mode' => ['mix-blend-plus-lighter', 'mix-blend-mode:plus-lighter'],
+            'a blend mode the background lacks' => ['bg-blend-plus-lighter', null],
+            'blend modes refuse arbitrary values' => ['mix-blend-[x]', null],
+            'a shadow of one token is used as written' => [
+                'shadow-[length:3px]',
+                '--tw-shadow:3px;box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), '
+                . 'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'a shadow without a colour gets currentcolor' => [
+                'shadow-[0_0_3px]',
+                '--tw-shadow:0 0 3px var(--tw-shadow-color, currentcolor);box-shadow:var(--tw-inset-shadow), '
+                . 'var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'every shadow of a list is recoloured' => [
+                'shadow-[0_0_10px_red,0_0_5px_blue]',
+                '--tw-shadow:0 0 10px var(--tw-shadow-color, red), 0 0 5px var(--tw-shadow-color, blue);'
+                . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
+                . 'var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'a variable colour is recoloured' => [
+                'shadow-[0_0_10px_var(--c)]',
+                '--tw-shadow:0 0 10px var(--tw-shadow-color, var(--c));box-shadow:var(--tw-inset-shadow), '
+                . 'var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'a colour keyword is a colour' => [
+                'shadow-[red]',
+                '--tw-shadow-color:red;@supports (color: color-mix(in lab, red, red)){'
+                . '--tw-shadow-color:color-mix(in oklab, red var(--tw-shadow-alpha), transparent)}',
+            ],
+            'a colour hint with an opacity' => [
+                'shadow-[color:red]/50',
+                '--tw-shadow-color:color-mix(in srgb, red 50%, transparent);'
+                . '@supports (color: color-mix(in lab, red, red)){'
+                . '--tw-shadow-color:color-mix(in oklab, color-mix(in oklab, red 50%, transparent) '
+                . 'var(--tw-shadow-alpha), transparent)}',
+            ],
+            'a theme colour with a variable opacity keeps the plain fallback' => [
+                'shadow-red-500/(--o)',
+                '--tw-shadow-color:oklch(63.7% 0.237 25.331);@supports (color: color-mix(in lab, red, red)){'
+                . '--tw-shadow-color:color-mix(in oklab, '
+                . 'color-mix(in oklab, var(--color-red-500) var(--o), transparent) '
+                . 'var(--tw-shadow-alpha), transparent)}',
+            ],
+            'a full opacity leaves the colour alone' => [
+                'shadow-red-500/100',
+                '--tw-shadow-color:oklch(63.7% 0.237 25.331);@supports (color: color-mix(in lab, red, red)){'
+                . '--tw-shadow-color:color-mix(in oklab, var(--color-red-500) var(--tw-shadow-alpha), transparent)}',
+            ],
+            'inherit is written alone' => ['shadow-inherit', '--tw-shadow-color:inherit'],
+            'inherit takes no opacity' => ['shadow-inherit/50', null],
+            'an opacity on a theme shadow becomes the alpha' => [
+                'shadow-sm/50',
+                '--tw-shadow-alpha:50%;'
+                . '--tw-shadow:0 1px 3px 0 var(--tw-shadow-color, oklab(from rgb(0 0 0 / 0.1) l a b / 50%)), '
+                . '0 1px 2px -1px var(--tw-shadow-color, oklab(from rgb(0 0 0 / 0.1) l a b / 50%));'
+                . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
+                . 'var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'a variable alpha needs the relative colour support' => [
+                'shadow-sm/(--o)',
+                '--tw-shadow-alpha:var(--o);--tw-shadow:0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), '
+                . '0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));@supports (color: lab(from red l a b)){'
+                . '--tw-shadow:0 1px 3px 0 var(--tw-shadow-color, oklab(from rgb(0 0 0 / 0.1) l a b / var(--o))), '
+                . '0 1px 2px -1px var(--tw-shadow-color, oklab(from rgb(0 0 0 / 0.1) l a b / var(--o)))};'
+                . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
+                . 'var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'none takes no opacity' => ['shadow-none/50', null],
+            'an inset shadow from the theme is not prefixed twice' => [
+                'inset-shadow-sm',
+                '--tw-inset-shadow:inset 0 2px 4px var(--tw-inset-shadow-color, rgb(0 0 0 / 0.05));'
+                . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
+                . 'var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'an arbitrary inset shadow is prefixed' => [
+                'inset-shadow-[0_1px_red]',
+                '--tw-inset-shadow:inset 0 1px var(--tw-inset-shadow-color, red);box-shadow:var(--tw-inset-shadow), '
+                . 'var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'a variable inset shadow is prefixed' => [
+                'inset-shadow-(--s)',
+                '--tw-inset-shadow:inset var(--s);box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), '
+                . 'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'no negative shadow' => ['-shadow-sm', null],
+            'the colour name of the other root is no shadow' => ['inset-shadow-md', null],
+        ];
+    }
+
+    private static function css(string $candidate): ?string
+    {
+        $registry = Registry::default();
+        $compiled = (new Compiler($registry))->compileReadings(
+            $candidate,
+            (new CandidateParser($registry))->parse($candidate),
+            ThemeRegistry::fromDefault(DefaultTheme::vars(), DefaultTheme::keyframes())
+        );
+
+        return $compiled === null ? null : self::render($compiled->nodes);
+    }
+
+    /**
+     * @param list<Node> $nodes
+     */
+    private static function render(array $nodes): string
+    {
+        $parts = [];
+
+        foreach ($nodes as $node) {
+            if ($node instanceof Declaration) {
+                $parts[] = $node->property . ':' . $node->value;
+            } elseif ($node instanceof Rule) {
+                $parts[] = $node->selector . '{' . self::render($node->nodes) . '}';
+            } elseif ($node instanceof AtRule) {
+                $parts[] = '@' . $node->name . ' ' . $node->params . '{' . self::render($node->nodes ?? []) . '}';
+            }
+        }
+
+        return \implode(';', $parts);
+    }
+}
