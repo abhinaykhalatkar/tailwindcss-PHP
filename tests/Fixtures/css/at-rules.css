@@ -1,0 +1,55 @@
+@charset "utf-8";
+@import "tailwindcss" source(none);
+@import url("theme.css") layer(theme);
+@layer theme, base, components, utilities;
+
+@media (min-width: 40rem) and (hover: hover) {
+  .sm\:flex {
+    display: flex;
+  }
+}
+
+@supports (display: grid) and (not (display: inline-grid)) {
+  .grid {
+    display: grid;
+  }
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url(inter.woff2) format("woff2"), url("inter.woff") format("woff");
+  unicode-range: U+0000-00FF, U+0131;
+  font-display: swap;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  50.5% {
+    opacity: 0.5;
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@property --tw-rotate {
+  syntax: "*";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@container sidebar (width > 20rem) {
+  .card {
+    display: grid;
+  }
+}
+
+@layer base {
+  @media print {
+    body {
+      color: black;
+    }
+  }
+}

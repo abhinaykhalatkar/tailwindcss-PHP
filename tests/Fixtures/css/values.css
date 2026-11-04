@@ -1,0 +1,37 @@
+.grid-areas {
+  grid-template-areas:
+    "header header"
+    "sidebar main";
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
+}
+
+.font {
+  font: italic small-caps 700 12px/1.5 "Helvetica Neue", Arial, sans-serif;
+}
+
+.math {
+  width: calc(100% - (2 * var(--gap, 1rem)));
+  height: clamp(1rem, 2.5vw + 0.5rem, 3rem);
+  margin: -0.5rem auto 0 +1px;
+  inset: 0 0 auto;
+  transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s;
+}
+
+.colors {
+  color: #FF00aa;
+  background: linear-gradient(to right, rgb(255 0 0 / 50%), transparent 75%);
+  border-color: color-mix(in oklab, currentColor 50%, transparent);
+}
+
+.urls {
+  background: url( "a b.png" ) no-repeat, url(c.png);
+  mask: url(#mask);
+}
+
+.misc {
+  z-index: -1;
+  flex: 1 1 0%;
+  aspect-ratio: 16 / 9;
+  content: "";
+  quotes: "\201C" "\201D";
+}

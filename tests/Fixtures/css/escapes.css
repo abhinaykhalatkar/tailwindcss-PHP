@@ -1,0 +1,31 @@
+.hover\:bg-red-500:hover {
+  background-color: var(--color-red-500);
+}
+
+.w-1\/2 {
+  width: calc(1 / 2 * 100%);
+}
+
+.\32 xl\:flex {
+  display: flex;
+}
+
+.bg-\[\#fff\] {
+  background-color: #fff;
+}
+
+.content-\[\'x\'\]::before {
+  content: "\201C" '\'' "a\"b";
+}
+
+.\[\&\>\*\]\:p-4 > * {
+  padding: 1rem;
+}
+
+.caf\E9, .ünïcödé {
+  font-family: "Noto Sans", sans-serif;
+}
+
+.icon {
+  background-image: url(data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=);
+}

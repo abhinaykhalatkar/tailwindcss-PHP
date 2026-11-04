@@ -1,0 +1,38 @@
+/* Native nesting as the engine and authors write it. */
+.card {
+  padding: 1rem;
+
+  &:hover {
+    background: white;
+  }
+
+  .title {
+    font-weight: 700;
+  }
+
+  > .body {
+    margin-top: 0.5rem;
+  }
+
+  .dark & {
+    color: white;
+  }
+
+  @media (width >= 40rem) {
+    padding: 2rem;
+
+    &:focus-within {
+      outline: 2px solid;
+    }
+  }
+
+  border-radius: 0.5rem;
+}
+
+.a,
+.b {
+  &:hover,
+  &:focus {
+    color: red;
+  }
+}

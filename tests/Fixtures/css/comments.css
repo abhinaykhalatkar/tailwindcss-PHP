@@ -1,0 +1,12 @@
+/*! tailwindcss v4.1.18 | MIT License | https://tailwindcss.com */
+/* An ordinary comment, dropped. */
+.a /* inside a selector */ {
+  color: /* inside a value */ red;
+  /* between declarations */
+  margin: 0;
+}
+
+/* A comment holding braces { } ; and quotes " ' is still just a comment. */
+.b {
+  content: "/* not a comment */";
+}

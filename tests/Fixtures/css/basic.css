@@ -1,0 +1,24 @@
+/* Plain rules: selectors, lists, combinators and !important. */
+html,
+:host {
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  tab-size: 4;
+}
+
+a:hover > span + em ~ b {
+  color: red !important;
+  text-decoration: underline;
+}
+
+*,
+::before,
+::after {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+input[type="checkbox" i],
+[data-state='open'] {
+  appearance: none;
+}
