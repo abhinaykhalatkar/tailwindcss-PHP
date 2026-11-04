@@ -5,157 +5,225 @@ declare(strict_types=1);
 namespace TailwindPhp\Tests\Unit\Engine\Utility;
 
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 use TailwindPhp\Engine\Candidate\Candidate;
 use TailwindPhp\Engine\Candidate\Value\NamedValue;
-use TailwindPhp\Engine\Css\Node\AtRule;
 use TailwindPhp\Engine\Css\Node\Declaration;
 use TailwindPhp\Engine\Data\DefaultTheme;
-use TailwindPhp\Engine\Theme\ThemeFlags;
+use TailwindPhp\Engine\Data\Utilities;
 use TailwindPhp\Engine\Theme\ThemeRegistry;
 use TailwindPhp\Engine\Utility\Definition;
 use TailwindPhp\Engine\Utility\Handlers;
+use TailwindPhp\Engine\Utility\Handlers\FamilyHandlerInterface;
+use TailwindPhp\Engine\Utility\Handlers\Layout;
 use TailwindPhp\Engine\Utility\ValueResolver;
+use TailwindPhp\Tests\Unit\Engine\Utility\Support\FixtureHandlersA;
+use TailwindPhp\Tests\Unit\Engine\Utility\Support\FixtureHandlersB;
+use TailwindPhp\Tests\Unit\Engine\Utility\Support\FixtureHandlersUnknown;
+use TailwindPhp\Tests\Unit\Engine\Utility\Support\FixturePartWithHandlers;
+use TailwindPhp\Tests\Unit\Engine\Utility\Support\FixturePartWithoutHandlers;
 
 /**
- * The named handlers: `container` reproduces the CLI's nested shape, `aspect`
- * writes ratios; every other handler doc 07 lists is a stub that takes
- * nothing yet.
+ * The handler dispatcher (design doc 07 §Definition schema, `handler`; TASK-0049):
+ * it implements no handler itself. It builds, once, a map from handler name to
+ * the family class that implements it, from `Data\Utilities::PARTS`, and refuses a
+ * name two families claim or a name that is not in the closed vocabulary.
+ *
+ * What each family's handlers do is tested with the family
+ * (`tests/Unit/Engine/Utility/Handlers/`).
  */
 final class HandlersTest extends TestCase
 {
-    /** @test */
-    public function containerHasTheCliShape(): void
-    {
-        $container = self::definition('container');
-        $result = self::handlers()->run('container', $container, self::static('container'), self::theme());
-
-        self::assertNotNull($result);
-        [$nodes, $used] = $result;
-
-        self::assertSame([], $used);
-        self::assertCount(6, $nodes);
-        self::assertInstanceOf(Declaration::class, $nodes[0]);
-        self::assertSame(['width', '100%'], [$nodes[0]->property, $nodes[0]->value]);
-
-        $media = [];
-
-        foreach (\array_slice($nodes, 1) as $node) {
-            self::assertInstanceOf(AtRule::class, $node);
-            self::assertNotNull($node->nodes);
-            self::assertCount(1, $node->nodes);
-            $declaration = $node->nodes[0];
-            self::assertInstanceOf(Declaration::class, $declaration);
-            $media[] = $node->name . ' ' . $node->params . ' ' . $declaration->property . ':' . $declaration->value;
-        }
-
-        // `golden/utilities/edge-values.css`, `.container`.
-        self::assertSame([
-            'media (width >= 40rem) max-width:40rem',
-            'media (width >= 48rem) max-width:48rem',
-            'media (width >= 64rem) max-width:64rem',
-            'media (width >= 80rem) max-width:80rem',
-            'media (width >= 96rem) max-width:96rem',
-        ], $media);
-    }
+    // --------------------------------------------------------------- the map
 
     /** @test */
-    public function containerBreakpointsAreSortedSmallestFirst(): void
-    {
-        $theme = self::theme();
-        $theme->merge(['--breakpoint-xs' => '30rem', '--breakpoint-3xl' => '120rem'], new ThemeFlags());
-        $result = self::handlers()->run('container', self::definition('container'), self::static('container'), $theme);
-
-        self::assertNotNull($result);
-
-        $params = [];
-
-        foreach (\array_slice($result[0], 1) as $node) {
-            self::assertInstanceOf(AtRule::class, $node);
-            $params[] = $node->params;
-        }
-
-        self::assertSame('(width >= 30rem)', $params[0]);
-        self::assertSame('(width >= 120rem)', $params[\count($params) - 1]);
-    }
-
-    /** @test */
-    public function containerTakesNoValue(): void
-    {
-        $valued = self::functional('container', new NamedValue('4'));
-        $negative = new Candidate('-container', [], false, true, Candidate::STATIC, 'container');
-
-        self::assertNull(self::handlers()->run('container', self::definition('container'), $valued, self::theme()));
-        self::assertNull(self::handlers()->run('container', self::definition('container'), $negative, self::theme()));
-    }
-
-    /** @test */
-    public function aspectWritesARatioAndDelegatesTheRest(): void
-    {
-        $definition = Definition::fromRow('aspect', [
-            'handler' => 'aspect',
-            'props' => ['aspect-ratio'],
-            'named' => ['square' => '1 / 1'],
-            'theme' => ['aspect'],
-            'fraction' => true,
-            'arbitrary' => true,
-        ]);
-        $handlers = self::handlers();
-        $theme = self::theme();
-        $sixteenByNine = self::functional('aspect', new NamedValue('16/9', true));
-        $ratio = $handlers->run('aspect', $definition, $sixteenByNine, $theme);
-        $named = $handlers->run('aspect', $definition, self::functional('aspect', new NamedValue('square')), $theme);
-        $themed = $handlers->run('aspect', $definition, self::functional('aspect', new NamedValue('video')), $theme);
-
-        self::assertNotNull($ratio);
-        self::assertNotNull($named);
-        self::assertNotNull($themed);
-        self::assertSame('16/9', self::value($ratio[0][0]));
-        self::assertSame('1 / 1', self::value($named[0][0]));
-        self::assertSame('var(--aspect-video)', self::value($themed[0][0]));
-        self::assertSame(['--aspect-video'], $themed[1]);
-        $leadingZero = self::functional('aspect', new NamedValue('01/2', true));
-        $bare = self::functional('aspect', new NamedValue('3'));
-
-        self::assertNull($handlers->run('aspect', $definition, $leadingZero, $theme));
-        self::assertNull($handlers->run('aspect', $definition, $bare, $theme));
-    }
-
-    /** @test */
-    public function everyListedHandlerExistsAndTheStubsTakeNothing(): void
+    public function theRealPartsBuildAndLayoutOwnsItsHandlers(): void
     {
         $handlers = self::handlers();
-        $stubs = 0;
 
-        foreach (Handlers::TAKES_VALUE as $name => $takesValue) {
-            if (\in_array($name, Handlers::IMPLEMENTED, true)) {
-                continue;
-            }
+        self::assertNotNull(
+            $handlers->run('container', self::definition('container'), self::static('container'), self::theme())
+        );
+        self::assertNotContains('container', $handlers->unimplemented());
+        self::assertNotContains('aspect', $handlers->unimplemented());
+    }
 
-            ++$stubs;
-            $candidate = $takesValue
+    /** @test */
+    public function aNameNoFamilyImplementsYetIsNullAndListedAsUnimplemented(): void
+    {
+        $handlers = self::handlers();
+        $unimplemented = $handlers->unimplemented();
+
+        self::assertNotEmpty($unimplemented, 'The wave-4 families have not landed yet.');
+
+        foreach ($unimplemented as $name) {
+            self::assertArrayHasKey($name, Handlers::TAKES_VALUE);
+
+            $candidate = Handlers::TAKES_VALUE[$name]
                 ? self::functional('x', new NamedValue('4'))
                 : self::static('x');
 
             self::assertNull($handlers->run($name, self::definition($name), $candidate, self::theme()), $name);
         }
-
-        self::assertSame(\count(Handlers::TAKES_VALUE) - \count(Handlers::IMPLEMENTED), $stubs);
     }
 
     /** @test */
-    public function anUnknownHandlerIsAnError(): void
+    public function implementedPlusUnimplementedIsTheWholeVocabulary(): void
+    {
+        $handlers = self::handlers();
+        $unimplemented = $handlers->unimplemented();
+        $implemented = \array_values(\array_diff(\array_keys(Handlers::TAKES_VALUE), $unimplemented));
+
+        self::assertSame(\array_values(\array_unique($unimplemented)), $unimplemented);
+        self::assertContains('container', $implemented);
+        self::assertContains('aspect', $implemented);
+        self::assertSame(\count(Handlers::TAKES_VALUE), \count($implemented) + \count($unimplemented));
+    }
+
+    /** @test */
+    public function theUnimplementedListKeepsTheVocabularyOrder(): void
+    {
+        $order = \array_keys(Handlers::TAKES_VALUE);
+        $positions = [];
+
+        foreach (self::handlers()->unimplemented() as $name) {
+            $positions[] = \array_search($name, $order, true);
+        }
+
+        $sorted = $positions;
+        \sort($sorted);
+
+        self::assertSame($sorted, $positions);
+    }
+
+    /** @test */
+    public function anUnknownHandlerNameIsAnError(): void
     {
         $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown utility handler "magic".');
 
         self::handlers()->run('magic', self::definition('container'), self::static('x'), self::theme());
     }
 
-    private static function value(\TailwindPhp\Engine\Css\Node\Node $node): string
-    {
-        self::assertInstanceOf(Declaration::class, $node);
+    // ------------------------------------------------------------ the refusals
 
-        return $node->value;
+    /** @test */
+    public function aNameTwoFamiliesImplementIsRefusedNamingBoth(): void
+    {
+        try {
+            new Handlers(new ValueResolver(), [FixtureHandlersA::class, FixtureHandlersB::class]);
+            self::fail('Expected a \LogicException.');
+        } catch (\LogicException $e) {
+            self::assertStringContainsString('"container"', $e->getMessage());
+            self::assertStringContainsString(FixtureHandlersA::class, $e->getMessage());
+            self::assertStringContainsString(FixtureHandlersB::class, $e->getMessage());
+        }
     }
+
+    /** @test */
+    public function aNameOutsideTheVocabularyIsRefusedNamingTheClass(): void
+    {
+        try {
+            new Handlers(new ValueResolver(), [FixtureHandlersUnknown::class]);
+            self::fail('Expected a \LogicException.');
+        } catch (\LogicException $e) {
+            self::assertStringContainsString('"nonsense"', $e->getMessage());
+            self::assertStringContainsString(FixtureHandlersUnknown::class, $e->getMessage());
+        }
+    }
+
+    /** @test */
+    public function theSameClassTwiceIsADuplicateToo(): void
+    {
+        $this->expectException(\LogicException::class);
+
+        new Handlers(new ValueResolver(), [Layout::class, Layout::class]);
+    }
+
+    /** @test */
+    public function theRefusalMessagesNameHandlersAndClassesOnly(): void
+    {
+        try {
+            new Handlers(new ValueResolver(), [FixtureHandlersA::class, FixtureHandlersB::class]);
+            self::fail('Expected a \LogicException.');
+        } catch (\LogicException $e) {
+            self::assertStringNotContainsString(\dirname(__DIR__, 4), $e->getMessage());
+            self::assertLessThan(300, \strlen($e->getMessage()));
+        }
+    }
+
+    // ----------------------------------------------------- parts to classes
+
+    /** @test */
+    public function aPartWithoutHandlersContributesNothing(): void
+    {
+        self::assertSame(
+            [FixtureHandlersA::class],
+            Handlers::handlerClasses([FixturePartWithHandlers::class, FixturePartWithoutHandlers::class])
+        );
+    }
+
+    /** @test */
+    public function everyRealPartDeclaresAHandlerClassThatImplementsTheContract(): void
+    {
+        $classes = Handlers::handlerClasses(Utilities::PARTS);
+
+        self::assertCount(\count(Utilities::PARTS), $classes, 'every wave-4 family has a handler class');
+
+        foreach ($classes as $class) {
+            self::assertTrue(
+                (new ReflectionClass($class))->implementsInterface(FamilyHandlerInterface::class),
+                $class
+            );
+
+            foreach ($class::names() as $name) {
+                self::assertArrayHasKey($name, Handlers::TAKES_VALUE, $class . ' implements an unknown handler.');
+            }
+        }
+    }
+
+    /** @test */
+    public function theHandlerClassesFollowThePartOrder(): void
+    {
+        $classes = Handlers::handlerClasses(Utilities::PARTS);
+
+        self::assertSame(Layout::class, $classes[0]);
+    }
+
+    // ---------------------------------------------------------------- purity
+
+    /** @test */
+    public function theDispatcherHoldsNoStaticStateAndIsFinal(): void
+    {
+        $reflection = new ReflectionClass(Handlers::class);
+
+        self::assertTrue($reflection->isFinal());
+        self::assertSame([], $reflection->getStaticProperties());
+    }
+
+    /** @test */
+    public function theVocabularyKeepsTheNamesDoc07Lists(): void
+    {
+        $names = ['container', 'aspect', 'fontSize', 'space', 'divide', 'ring', 'shadow', 'gradient', 'transform'];
+
+        foreach ($names as $name) {
+            self::assertArrayHasKey($name, Handlers::TAKES_VALUE);
+        }
+    }
+
+    /** @test */
+    public function aHandlerNeverSeesTheRawCandidateText(): void
+    {
+        // The family handler receives parsed objects only; this pins that the
+        // dispatcher passes the very Candidate it was given through unchanged.
+        $candidate = self::static('container');
+        $result = self::handlers()->run('container', self::definition('container'), $candidate, self::theme());
+
+        self::assertNotNull($result);
+        self::assertInstanceOf(Declaration::class, $result[0][0]);
+    }
+
+    // ---------------------------------------------------------------- helpers
 
     private static function definition(string $handler): Definition
     {

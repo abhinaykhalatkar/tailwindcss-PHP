@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace TailwindPhp\Engine\Data\Utilities;
 
+use TailwindPhp\Engine\Utility\Handlers\Layout as LayoutHandlers;
+
 /**
  * Layout utilities (design doc 08 §Layout, T1, plus `container` from §Corrections
  * from M2): the rows `Data\Utilities::table()` merges first.
@@ -17,6 +19,11 @@ namespace TailwindPhp\Engine\Data\Utilities;
  */
 final class Layout
 {
+    /**
+     * The family's handler class, built behind `Utility\Handlers`.
+     */
+    public const HANDLERS = LayoutHandlers::class;
+
     private const INSET_NAMED = ['auto' => 'auto', 'px' => '1px', 'full' => '100%'];
 
     private function __construct()

@@ -555,6 +555,38 @@ final class CompilerTest extends TestCase
     }
 
     /**
+     * CSS allows whitespace between the `!` and `important`: the flag still
+     * carries it, so the value never ends in `important!important`.
+     *
+     * @test
+     *
+     * @dataProvider spacedImportantValues
+     */
+    public function importantStripsASpacedSuffixToo(string $value, string $expected): void
+    {
+        $registry = Registry::default();
+        $registry->addCustom('loud', [new Declaration('color', $value)]);
+
+        self::assertSame($expected, self::css('loud!', $registry));
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function spacedImportantValues(): array
+    {
+        return [
+            'space after the bang' => ['red ! important', 'color:red!important'],
+            'several spaces, upper case' => ['red  !   IMPORTANT  ', 'color:red!important'],
+            'no space before the bang' => ['red! important', 'color:red!important'],
+            'plain suffix' => ['red !important', 'color:red!important'],
+            'a bang that is not the flag' => ['red ! imp', 'color:red ! imp!important'],
+            'important without a bang' => ['important', 'color:important!important'],
+            'important word inside a value' => ['var(--important)', 'color:var(--important)!important'],
+        ];
+    }
+
+    /**
      * The theme route: a value the theme parser stored after recovering from
      * a broken block must not become a broken `@media` prelude.
      *

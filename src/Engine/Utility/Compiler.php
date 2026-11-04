@@ -492,19 +492,25 @@ final class Compiler
     }
 
     /**
-     * $value without a trailing `!important` (any case, any space before it):
-     * the flag carries it, so it is never written twice.
+     * $value without a trailing `!important` (any case; CSS allows blanks
+     * before the `!` and between it and the word): the flag carries it, so it
+     * is never written twice.
      */
     private static function withoutImportant(string $value): string
     {
         $trimmed = \rtrim($value, " \t");
-        $length = \strlen($trimmed);
 
-        if ($length < 10 || \strtolower((string) \substr($trimmed, -10)) !== '!important') {
+        if (\strlen($trimmed) < 9 || \strtolower((string) \substr($trimmed, -9)) !== 'important') {
             return $value;
         }
 
-        return \rtrim((string) \substr($trimmed, 0, $length - 10), " \t");
+        $head = \rtrim((string) \substr($trimmed, 0, -9), " \t");
+
+        if (\substr($head, -1) !== '!') {
+            return $value;
+        }
+
+        return \rtrim((string) \substr($head, 0, -1), " \t");
     }
 
     /**

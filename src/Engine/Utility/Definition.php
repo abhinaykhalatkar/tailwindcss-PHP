@@ -185,7 +185,7 @@ final class Definition
                 throw self::invalid($root, 'each entry of "variants" must be a row');
             }
 
-            if (isset($variant['variants']) || isset($variant['order'])) {
+            if (\array_key_exists('variants', $variant) || \array_key_exists('order', $variant)) {
                 throw self::invalid($root, 'a sub-definition takes neither "variants" nor "order"');
             }
 

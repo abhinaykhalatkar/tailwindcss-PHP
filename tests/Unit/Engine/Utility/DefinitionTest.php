@@ -170,6 +170,17 @@ final class DefinitionTest extends TestCase
             ],
             'empty variants' => ['x', ['variants' => []], 'non-empty list of rows'],
             'nested variants' => ['x', ['variants' => [['variants' => []]]], 'takes neither'],
+            // An explicit null inside a sub-row is still a "variants" key, as it is at the top level.
+            'nested null variants' => [
+                'x',
+                ['variants' => [['props' => ['display'], 'variants' => null]]],
+                'takes neither',
+            ],
+            'nested null order' => [
+                'x',
+                ['variants' => [['props' => ['display'], 'order' => null]]],
+                'takes neither',
+            ],
             'variant not a row' => ['x', ['variants' => ['flex']], 'must be a row'],
             'upper-case root' => ['Flex', ['static' => ['display' => 'flex']], 'Invalid utility root'],
             'root with a double dash' => ['a--b', ['static' => ['a' => 'b']], 'Invalid utility root'],

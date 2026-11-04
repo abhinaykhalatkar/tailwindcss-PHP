@@ -4,7 +4,14 @@ declare(strict_types=1);
 
 namespace TailwindPhp\Engine\Data;
 
+use TailwindPhp\Engine\Data\Utilities\BackgroundsBorders;
+use TailwindPhp\Engine\Data\Utilities\EffectsFilters;
+use TailwindPhp\Engine\Data\Utilities\FlexboxGrid;
+use TailwindPhp\Engine\Data\Utilities\InteractivitySvgAccessibility;
 use TailwindPhp\Engine\Data\Utilities\Layout;
+use TailwindPhp\Engine\Data\Utilities\SpacingSizing;
+use TailwindPhp\Engine\Data\Utilities\TablesTransitionsTransforms;
+use TailwindPhp\Engine\Data\Utilities\Typography;
 
 /**
  * The utility table (design doc 07 §Definition schema, ENG-A2): the per-family
@@ -18,12 +25,23 @@ use TailwindPhp\Engine\Data\Utilities\Layout;
 final class Utilities
 {
     /**
-     * The parts, in the order of design doc 08 §Utilities. Wave 4 appends one
-     * class per family.
+     * The parts, in the order of design doc 08 §Utilities, one per family (the
+     * arbitrary property needs none). Each part has `rows()` and a `HANDLERS`
+     * constant naming its handler class, which `Utility\Handlers` reads; the
+     * wave-4 family tasks fill the stubs without touching this list.
      *
      * @var list<class-string>
      */
-    public const PARTS = [Layout::class];
+    public const PARTS = [
+        Layout::class,
+        FlexboxGrid::class,
+        SpacingSizing::class,
+        Typography::class,
+        BackgroundsBorders::class,
+        EffectsFilters::class,
+        TablesTransitionsTransforms::class,
+        InteractivitySvgAccessibility::class,
+    ];
 
     private function __construct()
     {
