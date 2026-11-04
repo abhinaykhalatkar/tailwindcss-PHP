@@ -324,6 +324,11 @@ final class BackgroundsBordersTest extends TestCase
         self::assertSame($ring, self::properties('ring-inset', $theme));
         self::assertSame(['--tw-border-style'], self::properties('border-2', $theme));
         self::assertSame(['--tw-border-style', '--tw-divide-x-reverse'], self::properties('divide-x', $theme));
+
+        // Unsorted: the handler registers first, as the CLI does (the flag before the row's style).
+        $divide = self::compile('divide-x', $theme);
+        self::assertNotNull($divide);
+        self::assertSame(['--tw-divide-x-reverse', '--tw-border-style'], $divide->properties);
         self::assertSame(['--tw-divide-y-reverse'], self::properties('divide-y-reverse', $theme));
         self::assertSame(['--tw-outline-style'], self::properties('outline', $theme));
         self::assertSame([], self::properties('rounded', $theme));

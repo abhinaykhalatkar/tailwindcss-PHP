@@ -130,7 +130,10 @@ final class Compiler
                 return $this->finish(
                     $body[0],
                     $body[1],
-                    \array_merge($definition->properties(), $body[2] ?? []),
+                    // The handler's registrations first: the CLI registers in the order a
+                    // utility's own AST names them (`divide-x` registers its reverse flag
+                    // before the border style its row lists).
+                    \array_merge($body[2] ?? [], $definition->properties()),
                     $definition->order(),
                     $candidate->important
                 );
