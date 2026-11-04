@@ -88,7 +88,22 @@ final class SerializerTest extends TestCase
         return [
             'empty' => ['', ''],
             'one rule' => [".a {\n  color: red;\n  margin: 0;\n}\n", '.a{color:red;margin:0}'],
-            'empty rule' => ['.a {}', '.a{}'],
+            'empty rule is dropped' => ['.a {}', ''],
+            'empty rules between others are dropped' => ['.a{} .b{x:y} .c{}', '.b{x:y}'],
+            'rule with only a comment is dropped' => ['.a { /* nothing */ }', ''],
+            'empty at-rule blocks are kept' => ['@layer base {}', '@layer base{}'],
+            'vendor pseudo-element is not merged' => [
+                '.a::-moz-placeholder{color:red}.a::placeholder{color:red}',
+                '.a::-moz-placeholder{color:red}.a::placeholder{color:red}',
+            ],
+            'vendor pseudo-class is not merged' => [
+                '.x{a:b}.y:-ms-input-placeholder{a:b}.z{a:b}',
+                '.x{a:b}.y:-ms-input-placeholder{a:b}.z{a:b}',
+            ],
+            'rules after a vendor rule still merge with each other' => [
+                '.v::-webkit-x{a:b}.p{a:b}.q{a:b}',
+                '.v::-webkit-x{a:b}.p,.q{a:b}',
+            ],
             'leading zero dropped' => [
                 '.a { opacity: 0.5; margin: -0.25rem +0.5px }',
                 '.a{opacity:.5;margin:-.25rem +.5px}',
@@ -180,6 +195,41 @@ final class SerializerTest extends TestCase
             '@layer utilities{.p-4{padding:calc(var(--spacing) * 4)}}@property --tw-x{syntax:"*";inherits:false}',
             Serializer::compact($sheet)
         );
+    }
+
+    /** @test */
+    public function blocksDeeperThanTheNestingCapAreDroppedFromCodeBuiltTrees(): void
+    {
+        $node = new Rule('.leaf', [new Declaration('x', 'leaf')]);
+
+        for ($i = 0; $i < 40; ++$i) {
+            $node = new Rule('.l' . $i, [new Declaration('x', (string) $i), $node]);
+        }
+
+        $sheet = new StyleSheet([$node]);
+        $pretty = Serializer::pretty($sheet);
+        $compact = Serializer::compact($sheet);
+
+        self::assertSame(32, \substr_count($pretty, '{'));
+        self::assertSame(32, \substr_count($compact, '{'));
+        self::assertStringNotContainsString('.leaf', $pretty);
+        self::assertStringNotContainsString('.leaf', $compact);
+        self::assertStringContainsString('.l39', $pretty);
+    }
+
+    /** @test */
+    public function aVeryDeepCodeBuiltTreeSerializesCheaply(): void
+    {
+        $node = new Rule('.leaf', [new Declaration('x', 'y')]);
+
+        for ($i = 0; $i < 20000; ++$i) {
+            $node = new Rule('.n', [$node]);
+        }
+
+        $sheet = new StyleSheet([$node]);
+
+        self::assertLessThan(10000, \strlen(Serializer::pretty($sheet)));
+        self::assertLessThan(10000, \strlen(Serializer::compact($sheet)));
     }
 
     /** @test */

@@ -35,8 +35,12 @@ use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
  * dropped with its block).
  *
  * Selectors, at-rule preludes and values are rebuilt from the exact source
- * text of their tokens, so escapes and authored spacing survive; comments in
- * them are dropped because comments are not tokens.
+ * text of their tokens, so escapes and authored spacing survive; a comment
+ * between two tokens (comments are not tokens) becomes one space, so it can
+ * never glue them together (`1px/**\/2px` stays two values, ENG-A14).
+ *
+ * Memory is bounded by {@see self::MAX_NODES}: once that many nodes exist the
+ * rest of the input is abandoned with one diagnostic (ENG-A14).
  */
 final class Parser
 {
@@ -44,6 +48,22 @@ final class Parser
      * Deepest block nesting kept (design doc 07 §Complexity and limits).
      */
     public const MAX_DEPTH = 32;
+
+    /**
+     * Most nodes (rules, at-rules, declarations, comments) one stylesheet
+     * may produce (ENG-A14).
+     */
+    public const MAX_NODES = 100000;
+
+    /**
+     * @var int
+     */
+    private $nodeCount = 0;
+
+    /**
+     * @var bool True once {@see self::MAX_NODES} was reached.
+     */
+    private $stopped = false;
 
     /**
      * @var Tokenizer
@@ -145,7 +165,7 @@ final class Parser
             }
 
             if ($type === Token::EOF) {
-                if ($level > 0) {
+                if ($level > 0 && !$this->stopped) {
                     $this->reportUnclosed($token);
                 }
 
@@ -173,6 +193,10 @@ final class Parser
             if ($node !== null) {
                 $nodes[] = $node;
             }
+
+            if ($this->stopped) {
+                return $nodes;
+            }
         }
     }
 
@@ -186,7 +210,7 @@ final class Parser
         if ($terminator->type === Token::LEFT_BRACE) {
             $children = $this->block($level, $terminator);
 
-            if ($children === null || $prelude[3]) {
+            if ($children === null || $prelude[3] || !$this->admit($at)) {
                 return null;
             }
 
@@ -200,7 +224,7 @@ final class Parser
             $this->pending = $terminator;
         }
 
-        if ($prelude[3]) {
+        if ($prelude[3] || !$this->admit($at)) {
             return null;
         }
 
@@ -231,6 +255,10 @@ final class Parser
             if ($selector === '') {
                 $this->report('Rule without a selector', $first);
 
+                return null;
+            }
+
+            if (!$this->admit($first)) {
                 return null;
             }
 
@@ -293,6 +321,10 @@ final class Parser
 
         $value = self::join($raws, $types, $colon + 1, $end);
 
+        if (!$this->admit($first)) {
+            return null;
+        }
+
         return $this->debug
             ? new Declaration($raws[0], $value, $important, $first->line, $first->col)
             : new Declaration($raws[0], $value, $important);
@@ -323,6 +355,7 @@ final class Parser
         $invalid = false;
         $colon = -1;
         $significant = 0;
+        $previousEnd = $token->start;
         $custom = false;
         $maybeCustom = $declarationContext
             && $token->type === Token::IDENT
@@ -333,6 +366,20 @@ final class Parser
 
             if ($type === Token::EOF) {
                 break;
+            }
+
+            // A comment sat between the previous token and this one: keep
+            // them apart (ENG-A14), or `1px` and `2px` with a comment between
+            // them would become one value. Done first so the colon index
+            // below stays right. Tokens are otherwise contiguous.
+            $commentGap = $token->start > $previousEnd
+                && $type !== Token::WHITESPACE
+                && $raws !== []
+                && $types[\count($types) - 1] !== Token::WHITESPACE;
+
+            if ($commentGap) {
+                $raws[] = ' ';
+                $types[] = Token::WHITESPACE;
             }
 
             if ($stack === []) {
@@ -383,8 +430,13 @@ final class Parser
                 ++$significant;
             }
 
-            $raws[] = (string) \substr($source, $token->start, $token->end - $token->start);
-            $types[] = $type;
+            // Leading whitespace is always trimmed later; never store it.
+            if ($type !== Token::WHITESPACE || $raws !== []) {
+                $raws[] = (string) \substr($source, $token->start, $token->end - $token->start);
+                $types[] = $type;
+            }
+
+            $previousEnd = $token->end;
             $token = $tokenizer->next();
         }
 
@@ -427,6 +479,29 @@ final class Parser
                 return null;
             }
         }
+    }
+
+    /**
+     * Count one more node against {@see self::MAX_NODES}. The node that
+     * would pass the limit is refused, reported once, and the rest of the
+     * input is abandoned — no node is created after that.
+     */
+    private function admit(Token $at): bool
+    {
+        if ($this->stopped) {
+            return false;
+        }
+
+        if (++$this->nodeCount <= self::MAX_NODES) {
+            return true;
+        }
+
+        $this->stopped = true;
+        $this->report(\sprintf('Stylesheet too large; parsing stopped after %d nodes', self::MAX_NODES), $at);
+        $this->tokenizer->skipToEnd();
+        $this->pending = null;
+
+        return false;
     }
 
     private function next(): Token

@@ -52,8 +52,8 @@ final class T05CssParserLimitsTest extends TestCase
             $started = self::cpuSeconds();
             $sheet = Parser::parse($css, $bag);
             $flat = Nesting::flatten($sheet, $bag);
-            Serializer::pretty($flat);
-            Serializer::compact($flat);
+            $pretty = Serializer::pretty($flat);
+            $compact = Serializer::compact($flat);
             $elapsed = self::cpuSeconds() - $started;
         } finally {
             if ($collecting) {
@@ -62,7 +62,12 @@ final class T05CssParserLimitsTest extends TestCase
         }
 
         self::assertLessThanOrEqual(Parser::MAX_DEPTH, AstDump::depth($sheet));
-        self::assertLessThanOrEqual(Tokenizer::MAX_DIAGNOSTICS + 1, \count($bag));
+        // Parser and flattener each cap their own diagnostics.
+        self::assertLessThanOrEqual(2 * (Tokenizer::MAX_DIAGNOSTICS + 1), \count($bag));
+        // Output stays linear in the input: no level of nesting may multiply it.
+        $bound = 8 * \strlen($css) + 64 * 1024;
+        self::assertLessThan($bound, \strlen($pretty), 'pretty output is bounded');
+        self::assertLessThan($bound, \strlen($compact), 'compact output is bounded');
         self::assertLessThan(
             self::SECONDS,
             $elapsed,
@@ -101,7 +106,67 @@ final class T05CssParserLimitsTest extends TestCase
             'small rules' => [\str_repeat('.a{b:c}', (int) ($dense / 7))],
             'one long selector line' => [\str_repeat('.a ', (int) ($dense / 3)) . '{x:y}'],
             'nul and invalid utf-8' => [\str_repeat("\0\xFF\xC3", (int) ($dense / 3))],
+
+            // TASK-0024 round-1 verifier probes (ENG-A14): selector expansion.
+            'a chain of 22 ampersand pairs (117 bytes)' => [
+                '.a{' . \str_repeat('& &{', 22) . 'c:d' . \str_repeat('}', 23),
+            ],
+            '18 nested two-selector lists' => [\str_repeat('.a,.b{', 18) . 'c:d' . \str_repeat('}', 18)],
+            '4 000 simple parents with 500 children' => [self::parentsWithChildren(4000, 500)],
+            '1 000 simple parents with 500 children' => [self::parentsWithChildren(1000, 500)],
+            'a long parent list with nested lists' => [
+                self::parentsWithChildren(1000, 1) . \str_repeat('.x,.y{', 10) . 'c:d' . \str_repeat('}', 10),
+            ],
         ];
+    }
+
+    /**
+     * 2 MB of tiny rules: about 600 000 nodes' worth of input, which used to
+     * exhaust PHP's default 128 MB. The parser stops at Parser::MAX_NODES with
+     * one diagnostic (ENG-A14) and stays far inside 64 MB on this host.
+     *
+     * @test
+     */
+    public function twoMegabytesOfTinyRulesStopAtTheNodeLimit(): void
+    {
+        $css = \str_repeat('.a{b:c}', (int) (2 * 1024 * 1024 / 7));
+        $bag = new DiagnosticBag();
+        $resetPeak = \function_exists('memory_reset_peak_usage');
+
+        if ($resetPeak) {
+            \memory_reset_peak_usage();
+        }
+
+        $before = \memory_get_usage();
+        $sheet = Parser::parse($css, $bag);
+        $retained = \memory_get_usage() - $before;
+        $peak = \memory_get_peak_usage() - $before;
+
+        self::assertCount(1, $bag);
+        self::assertStringContainsString('Stylesheet too large', $bag->all()[0]->message());
+        self::assertCount((int) (Parser::MAX_NODES / 2), $sheet->nodes, 'rules + declarations = MAX_NODES');
+        self::assertLessThan(48 * 1024 * 1024, $retained, \sprintf('retained %.1f MB', $retained / 1048576));
+
+        // Measured on this host (PHP 8.2 ZTS): peak ≈ 26 MB above the
+        // baseline, retained ≈ 25.5 MB (≈ 268 bytes per node). The peak can
+        // only be isolated where memory_reset_peak_usage() exists (PHP 8.2+).
+        if ($resetPeak) {
+            self::assertLessThan(64 * 1024 * 1024, $peak, \sprintf('peak %.1f MB', $peak / 1048576));
+        }
+    }
+
+    /**
+     * A rule with $parents simple selectors and $children `&:hover` rules.
+     */
+    private static function parentsWithChildren(int $parents, int $children): string
+    {
+        $list = [];
+
+        for ($i = 0; $i < $parents; ++$i) {
+            $list[] = '.p' . $i;
+        }
+
+        return \implode(',', $list) . '{' . \str_repeat('&:hover{c:d}', $children) . '}';
     }
 
     /**

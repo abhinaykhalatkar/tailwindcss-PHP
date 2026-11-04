@@ -168,6 +168,35 @@ final class ParserTest extends TestCase
                 [['comment', '! tailwindcss | MIT '], ['rule', '.a', []]],
             ],
             'banner after leading whitespace is kept' => ["\n  /*!x*/ a{}", [['comment', '!x'], ['rule', 'a', []]]],
+            // ENG-A14: a comment between two tokens becomes one space.
+            'comment between two values keeps them apart' => [
+                'a{margin:1px/**/2px}',
+                [['rule', 'a', [['decl', 'margin', '1px 2px', false]]]],
+            ],
+            'comment inside a custom property keeps tokens apart' => [
+                'a{--x: a/**/b}',
+                [['rule', 'a', [['decl', '--x', 'a b', false]]]],
+            ],
+            'comment inside a selector keeps compounds apart' => [
+                'a/**/b{x:y}',
+                [['rule', 'a b', [['decl', 'x', 'y', false]]]],
+            ],
+            'comment before a colon' => [
+                'a{color/* c */:red}',
+                [['rule', 'a', [['decl', 'color', 'red', false]]]],
+            ],
+            'comment right after a colon' => [
+                'a{color:/**/red}',
+                [['rule', 'a', [['decl', 'color', 'red', false]]]],
+            ],
+            'comment next to whitespace adds nothing' => [
+                'a{margin:1px /**/ 2px}',
+                [['rule', 'a', [['decl', 'margin', '1px  2px', false]]]],
+            ],
+            'comment in an at-rule prelude' => [
+                '@media/**/screen{}',
+                [['at', 'media', 'screen', []]],
+            ],
             'ordinary comments are dropped' => [
                 '/* lead */ a /* in selector */ { color: /* in value */ red; /* between */ }',
                 [['rule', 'a', [['decl', 'color', 'red', false]]]],

@@ -13,6 +13,7 @@ use TailwindPhp\Engine\Css\Node\Rule;
 use TailwindPhp\Engine\Css\Node\StyleSheet;
 use TailwindPhp\Engine\Css\Parser;
 use TailwindPhp\Engine\Css\SelectorList;
+use TailwindPhp\Engine\Css\Serializer;
 use TailwindPhp\Engine\Diagnostic\Diagnostic;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
 
@@ -87,9 +88,38 @@ final class NestingTest extends TestCase
                 '.a .x, .b { &:hover { color: red } }',
                 [['rule', ':is(.a .x, .b):hover', [$red]]],
             ],
-            'pseudo-element parent list uses :is()' => [
+            // `:is()` cannot hold a pseudo-element (ENG-A14 / review item 7).
+            'pseudo-element parent list expands per selector' => [
                 '.a::before, .b { &:hover { color: red } }',
-                [['rule', ':is(.a::before, .b):hover', [$red]]],
+                [['rule', '.a::before:hover, .b:hover', [$red]]],
+            ],
+            'legacy pseudo-element parent list expands per selector' => [
+                '.a:after, .b .c { &:hover { color: red } }',
+                [['rule', '.a:after:hover, .b .c:hover', [$red]]],
+            ],
+            'type selector after the ampersand moves in front' => [
+                '.a { &div { color: red } }',
+                [['rule', 'div.a', [$red]]],
+            ],
+            'universal selector after the ampersand moves in front' => [
+                '.a { &*.b { color: red } }',
+                [['rule', '*.a.b', [$red]]],
+            ],
+            'type selector after the ampersand with a complex parent' => [
+                '.a .b { &div { color: red } }',
+                [['rule', 'div:is(.a .b)', [$red]]],
+            ],
+            'type selector after a descendant ampersand' => [
+                '.a { .x &span { color: red } }',
+                [['rule', '.x span.a', [$red]]],
+            ],
+            'type selector after the ampersand with a simple parent list' => [
+                '.a, .b { &p { color: red } }',
+                [['rule', 'p.a, p.b', [$red]]],
+            ],
+            'ampersand inside a compound is left alone' => [
+                '.a { .x&.y { color: red } }',
+                [['rule', '.x.a.y', [$red]]],
             ],
             'two ampersands with a parent list use :is()' => [
                 '.a, .b { & + & { color: red } }',
@@ -220,6 +250,72 @@ final class NestingTest extends TestCase
         self::assertStringContainsString('nesting too deep', $bag->all()[0]->message());
         self::assertCount(32, $flat->nodes, 'the 32 outermost rules survive, the rest is dropped');
         self::assertFlat($flat->nodes, false);
+    }
+
+    /** @test */
+    public function ampersandChainsAreCutAtTheSelectorLimit(): void
+    {
+        $bag = new DiagnosticBag();
+        $css = '.a{' . \str_repeat('& &{', 22) . 'c:d' . \str_repeat('}', 23);
+        $flat = Nesting::flatten(Parser::parse($css, $bag), $bag);
+        $pretty = Serializer::pretty($flat);
+
+        self::assertCount(1, $bag);
+        self::assertStringContainsString('Selector too long after nesting', $bag->all()[0]->message());
+        self::assertLessThan(64 * 1024, \strlen($pretty));
+        self::assertFlat($flat->nodes, false);
+
+        foreach ($flat->nodes as $node) {
+            self::assertInstanceOf(Rule::class, $node);
+            self::assertLessThanOrEqual(Nesting::MAX_SELECTOR_BYTES, \strlen($node->selector));
+        }
+    }
+
+    /** @test */
+    public function doublingParentListsAreCutAtTheSelectorLimit(): void
+    {
+        $bag = new DiagnosticBag();
+        $css = \str_repeat('.a,.b{', 18) . 'c:d' . \str_repeat('}', 18);
+        $flat = Nesting::flatten(Parser::parse($css, $bag), $bag);
+
+        self::assertCount(1, $bag);
+        self::assertLessThan(64 * 1024, \strlen(Serializer::pretty($flat)));
+    }
+
+    /** @test */
+    public function aSelectorExactlyAtTheLimitIsKept(): void
+    {
+        $bag = new DiagnosticBag();
+        $selector = '.' . \str_repeat('a', Nesting::MAX_SELECTOR_BYTES - 1);
+        $flat = Nesting::flatten(Parser::parse($selector . '{x:y}', $bag), $bag);
+
+        self::assertSame([], $bag->toArray());
+        self::assertSame([['rule', $selector, [['decl', 'x', 'y', false]]]], AstDump::of($flat));
+
+        $over = Nesting::flatten(Parser::parse($selector . 'a{x:y}', $bag), $bag);
+
+        self::assertSame([], $over->nodes);
+        self::assertCount(1, $bag);
+    }
+
+    /** @test */
+    public function nestingDiagnosticsAreCapped(): void
+    {
+        $parents = [];
+
+        // About 6.9 KB of parents (under the limit); every child resolves to
+        // about 12.9 KB (over it), so all 500 children are dropped.
+        for ($i = 0; $i < 1000; ++$i) {
+            $parents[] = '.p' . $i;
+        }
+
+        $bag = new DiagnosticBag();
+        $css = \implode(',', $parents) . '{' . \str_repeat('&:hover{c:d}', 500) . '}';
+        $flat = Nesting::flatten(Parser::parse($css, $bag), $bag);
+
+        self::assertSame([], $flat->nodes);
+        self::assertLessThanOrEqual(101, \count($bag));
+        self::assertStringContainsString('Too many', $bag->all()[\count($bag) - 1]->message());
     }
 
     /** @test */

@@ -20,12 +20,18 @@ use TailwindPhp\Engine\Css\Node\StyleSheet;
  * gives back the tree of `x`.
  *
  * `compact` drops every optional byte: no whitespace that is not needed,
- * `0.5` → `.5`, a zero length → `0`, and adjacent rules with byte-identical
- * blocks merged into one selector list (Q7, ENG-A6: adjacent only, so the
- * cascade order cannot change). The rewrites are deliberately conservative —
- * nothing inside a function (`calc()`, colour functions, `var()`), nothing in
- * a custom property, no unit dropped from `flex` — and colours are never
- * rewritten (v4 keeps them as authored).
+ * `0.5` → `.5`, a zero length → `0`, rules without declarations (as the CLI
+ * does), and adjacent rules with byte-identical blocks merged into one
+ * selector list (Q7, ENG-A6: adjacent only, so the cascade order cannot
+ * change). A rule whose selector has a vendor-prefixed pseudo (`::-moz-…`,
+ * `:-webkit-…`) is never merged: a browser drops a whole rule over one
+ * selector it does not know (ENG-A14). The rewrites are deliberately
+ * conservative — nothing inside a function (`calc()`, colour functions,
+ * `var()`), nothing in a custom property, no unit dropped from `flex` — and
+ * colours are never rewritten (v4 keeps them as authored).
+ *
+ * Both forms drop blocks nested deeper than {@see Parser::MAX_DEPTH}; a parsed
+ * tree never has them, a tree built in code might (T-05).
  *
  * Output is written as fragments and joined once (design doc 13 #19); compact
  * joins once per block because merging compares whole block bodies.
@@ -70,12 +76,16 @@ final class Serializer
         $previous = null;
 
         foreach ($sheet->nodes as $node) {
+            if (self::tooDeep($node, 0)) {
+                continue;
+            }
+
             // A banner comment is followed directly by the content it heads.
             if ($previous !== null && !$previous instanceof Comment) {
                 $fragments[] = "\n";
             }
 
-            self::prettyNode($node, '', $fragments);
+            self::prettyNode($node, '', 0, $fragments);
             $previous = $node;
         }
 
@@ -84,13 +94,25 @@ final class Serializer
 
     public static function compact(StyleSheet $sheet): string
     {
-        return self::compactBlock($sheet->nodes);
+        return self::compactBlock($sheet->nodes, 0);
     }
 
     /**
+     * Whether $node opens a block that would be nested deeper than
+     * {@see Parser::MAX_DEPTH} when it sits in contents at $level.
+     */
+    private static function tooDeep(Node $node, int $level): bool
+    {
+        $hasBlock = $node instanceof Rule || ($node instanceof AtRule && $node->nodes !== null);
+
+        return $hasBlock && $level + 1 > Parser::MAX_DEPTH;
+    }
+
+    /**
+     * @param int $level Blocks around $node.
      * @param list<string> $fragments
      */
-    private static function prettyNode(Node $node, string $indent, array &$fragments): void
+    private static function prettyNode(Node $node, string $indent, int $level, array &$fragments): void
     {
         if ($node instanceof Declaration) {
             $fragments[] = $indent . $node->property . ': ' . $node->value
@@ -101,7 +123,7 @@ final class Serializer
 
         if ($node instanceof Rule) {
             $fragments[] = $indent . $node->selector . " {\n";
-            self::prettyChildren($node->nodes, $indent, $fragments);
+            self::prettyChildren($node->nodes, $indent, $level, $fragments);
             $fragments[] = $indent . "}\n";
 
             return;
@@ -117,7 +139,7 @@ final class Serializer
             }
 
             $fragments[] = $head . " {\n";
-            self::prettyChildren($node->nodes, $indent, $fragments);
+            self::prettyChildren($node->nodes, $indent, $level, $fragments);
             $fragments[] = $indent . "}\n";
 
             return;
@@ -130,14 +152,17 @@ final class Serializer
 
     /**
      * @param list<Node> $nodes
+     * @param int $level Blocks around the parent of $nodes.
      * @param list<string> $fragments
      */
-    private static function prettyChildren(array $nodes, string $indent, array &$fragments): void
+    private static function prettyChildren(array $nodes, string $indent, int $level, array &$fragments): void
     {
         $inner = $indent . '  ';
 
         foreach ($nodes as $child) {
-            self::prettyNode($child, $inner, $fragments);
+            if (!self::tooDeep($child, $level + 1)) {
+                self::prettyNode($child, $inner, $level + 1, $fragments);
+            }
         }
     }
 
@@ -146,10 +171,11 @@ final class Serializer
      * bodies are byte-identical.
      *
      * @param list<Node> $nodes
+     * @param int $level Blocks around $nodes.
      */
-    private static function compactBlock(array $nodes): string
+    private static function compactBlock(array $nodes, int $level): string
     {
-        /** @var list<string> $kinds 'rule', 'decl' or 'other' */
+        /** @var list<string> $kinds 'rule', 'vendor-rule', 'decl' or 'other' */
         $kinds = [];
         /** @var list<string> $texts a rule's body, or the item's full text */
         $texts = [];
@@ -157,19 +183,30 @@ final class Serializer
         $selectors = [];
 
         foreach ($nodes as $node) {
+            if (self::tooDeep($node, $level)) {
+                continue;
+            }
+
             if ($node instanceof Rule) {
-                $body = self::compactBlock($node->nodes);
+                $body = self::compactBlock($node->nodes, $level + 1);
+
+                // A rule without declarations emits nothing (as the CLI).
+                if ($body === '') {
+                    continue;
+                }
+
                 $selector = SelectorList::minify($node->selector);
+                $vendor = \strpos($selector, ':-') !== false;
                 $last = \count($kinds) - 1;
 
-                if ($last >= 0 && $kinds[$last] === 'rule' && $texts[$last] === $body) {
+                if (!$vendor && $last >= 0 && $kinds[$last] === 'rule' && $texts[$last] === $body) {
                     $selectors[$last][] = $selector;
 
                     continue;
                 }
 
                 $selectors[\count($kinds)] = [$selector];
-                $kinds[] = 'rule';
+                $kinds[] = $vendor ? 'vendor-rule' : 'rule';
                 $texts[] = $body;
 
                 continue;
@@ -185,7 +222,9 @@ final class Serializer
             if ($node instanceof AtRule) {
                 $head = '@' . $node->name . ($node->params === '' ? '' : ' ' . self::minifyTokens($node->params, null));
                 $kinds[] = 'other';
-                $texts[] = $node->nodes === null ? $head . ';' : $head . '{' . self::compactBlock($node->nodes) . '}';
+                $texts[] = $node->nodes === null
+                    ? $head . ';'
+                    : $head . '{' . self::compactBlock($node->nodes, $level + 1) . '}';
 
                 continue;
             }
@@ -201,7 +240,7 @@ final class Serializer
         $count = \count($kinds);
 
         for ($i = 0; $i < $count; ++$i) {
-            if ($kinds[$i] === 'rule') {
+            if ($kinds[$i] === 'rule' || $kinds[$i] === 'vendor-rule') {
                 $fragments[] = \implode(',', $selectors[$i]) . '{' . $texts[$i] . '}';
 
                 continue;
@@ -216,6 +255,7 @@ final class Serializer
 
         return \implode('', $fragments);
     }
+
 
     private static function compactValue(Declaration $declaration): string
     {

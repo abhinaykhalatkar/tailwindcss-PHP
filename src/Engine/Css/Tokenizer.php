@@ -253,6 +253,16 @@ final class Tokenizer
     }
 
     /**
+     * Abandon the rest of the input: every later {@see self::next()} is EOF.
+     * Used by the parser once a hard limit is reached (ENG-A14), so the
+     * remainder costs nothing at all.
+     */
+    public function skipToEnd(): void
+    {
+        $this->pos = $this->length;
+    }
+
+    /**
      * The next token; EOF forever once the input is exhausted.
      */
     public function next(): Token

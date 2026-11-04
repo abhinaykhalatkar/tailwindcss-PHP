@@ -20,6 +20,19 @@ final class SelectorList
     private const HEX_DIGITS = '0123456789abcdefABCDEF';
 
     /**
+     * Identifier bytes: ASCII letters, digits, `-`, `_` and every byte >= 0x80.
+     */
+    private const NAME_BYTES = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'
+        . "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8A\x8B\x8C\x8D\x8E\x8F"
+        . "\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9A\x9B\x9C\x9D\x9E\x9F"
+        . "\xA0\xA1\xA2\xA3\xA4\xA5\xA6\xA7\xA8\xA9\xAA\xAB\xAC\xAD\xAE\xAF"
+        . "\xB0\xB1\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA\xBB\xBC\xBD\xBE\xBF"
+        . "\xC0\xC1\xC2\xC3\xC4\xC5\xC6\xC7\xC8\xC9\xCA\xCB\xCC\xCD\xCE\xCF"
+        . "\xD0\xD1\xD2\xD3\xD4\xD5\xD6\xD7\xD8\xD9\xDA\xDB\xDC\xDD\xDE\xDF"
+        . "\xE0\xE1\xE2\xE3\xE4\xE5\xE6\xE7\xE8\xE9\xEA\xEB\xEC\xED\xEE\xEF"
+        . "\xF0\xF1\xF2\xF3\xF4\xF5\xF6\xF7\xF8\xF9\xFA\xFB\xFC\xFD\xFE\xFF";
+
+    /**
      * Legacy single-colon pseudo-elements (Selectors Level 4 §14).
      *
      * @var array<string, true>
@@ -144,8 +157,73 @@ final class SelectorList
      */
     public static function isComplex(string $selector): bool
     {
+        $features = self::topLevelFeatures($selector);
+
+        return $features[0] || $features[1];
+    }
+
+    /**
+     * Whether $selector has a pseudo-element (`::x`, or a legacy `:before`,
+     * `:after`, `:first-line`, `:first-letter`) outside parentheses and
+     * brackets. `:is()` cannot hold one — it would match nothing — so the
+     * flattener expands such parent lists per selector (ENG-A14).
+     */
+    public static function hasPseudoElement(string $selector): bool
+    {
+        return self::topLevelFeatures($selector)[1];
+    }
+
+    /**
+     * Move a type selector written right after a compound-leading `&` in
+     * front of it: `&div.x` → `div&.x`, so substituting the parent gives
+     * `div.a.x` and not `.adiv.x` (a type selector must come first in its
+     * compound). Strings, brackets and escapes are respected; an `&` in the
+     * middle of a compound is left alone.
+     */
+    public static function hoistTypeSelectors(string $selector): string
+    {
+        $fragments = [];
+        $from = 0;
+        $length = \strlen($selector);
+
+        foreach (self::ampersandOffsets($selector) as $offset) {
+            $next = $offset + 1 < $length ? \ord($selector[$offset + 1]) : 0;
+            // A letter, a non-ASCII byte, or `*` (the universal selector).
+            $startsType = ($next >= 97 && $next <= 122) || ($next >= 65 && $next <= 90)
+                || $next >= 128 || $next === 42;
+            $leadsCompound = $offset === 0 || \strpos(" \t\n>+~(,", $selector[$offset - 1]) !== false;
+
+            if (!$startsType || !$leadsCompound) {
+                continue;
+            }
+
+            $nameLength = $next === 42 ? 1 : (int) \strspn($selector, self::NAME_BYTES, $offset + 1);
+            $fragments[] = (string) \substr($selector, $from, $offset - $from);
+            $fragments[] = (string) \substr($selector, $offset + 1, $nameLength) . '&';
+            $from = $offset + 1 + $nameLength;
+        }
+
+        if ($fragments === []) {
+            return $selector;
+        }
+
+        $fragments[] = (string) \substr($selector, $from);
+
+        return \implode('', $fragments);
+    }
+
+    /**
+     * One scan for the flattener: whether $selector has a combinator, and
+     * whether it has a pseudo-element, outside parentheses and brackets.
+     *
+     * @return array{0: bool, 1: bool}
+     */
+    private static function topLevelFeatures(string $selector): array
+    {
         $selector = self::trim($selector);
         $length = \strlen($selector);
+        $combinator = false;
+        $pseudoElement = false;
         $depth = 0;
         $i = 0;
 
@@ -153,7 +231,7 @@ final class SelectorList
             $i += (int) \strcspn($selector, "\\\"'()[] \t\n>+~:", $i);
 
             if ($i >= $length) {
-                return false;
+                break;
             }
 
             $c = $selector[$i];
@@ -170,31 +248,22 @@ final class SelectorList
                 $depth = $depth > 0 ? $depth - 1 : 0;
             } elseif ($depth === 0) {
                 if ($c !== ':') {
-                    return true;
-                }
-
-                if ($i + 1 < $length && $selector[$i + 1] === ':') {
-                    return true;
-                }
-
-                $nameLength = (int) \strspn(
-                    $selector,
-                    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_',
-                    $i + 1
-                );
-                $name = \strtolower((string) \substr($selector, $i + 1, $nameLength));
-
-                if (isset(self::LEGACY_PSEUDO_ELEMENTS[$name])) {
-                    return true;
+                    $combinator = true;
+                } elseif ($i + 1 < $length && $selector[$i + 1] === ':') {
+                    $pseudoElement = true;
+                    ++$i;
+                } else {
+                    $nameLength = (int) \strspn($selector, self::NAME_BYTES, $i + 1);
+                    $name = \strtolower((string) \substr($selector, $i + 1, $nameLength));
+                    $pseudoElement = $pseudoElement || isset(self::LEGACY_PSEUDO_ELEMENTS[$name]);
                 }
             }
 
             ++$i;
         }
 
-        return false;
+        return [$combinator, $pseudoElement];
     }
-
     /**
      * $selector without optional whitespace, for the compact serializer:
      * commas and combinators lose their surrounding spaces, other whitespace
