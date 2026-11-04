@@ -56,6 +56,35 @@ final class ApplierTest extends TestCase
         );
     }
 
+    /**
+     * A custom `@starting-style` variant wraps at the same nesting position as a media query
+     * (probed against the pinned CLI: `hover:starting:opacity-0` and `starting:hover:opacity-0` differ only
+     * in which one is outside).
+     *
+     * @test
+     */
+    public function aStartingStyleVariantIsAnAtRuleWithNoQuery(): void
+    {
+        $applier = self::withStarting();
+        self::same('.c{@starting-style{display:flex}}', self::wrappedText($applier, [self::v('starting')]));
+        self::same(
+            '.c{&:hover{@media (hover: hover){@starting-style{display:flex}}}}',
+            self::wrappedText($applier, [self::v('hover'), self::v('starting')])
+        );
+        self::same(
+            '.c{@starting-style{&:hover{@media (hover: hover){display:flex}}}}',
+            self::wrappedText($applier, [self::v('starting'), self::v('hover')])
+        );
+        self::same(
+            '.c{@media (width >= 48rem){@starting-style{display:flex}}}',
+            self::wrappedText($applier, [self::v('md'), self::v('starting')])
+        );
+        self::same(
+            '.c{@media (prefers-color-scheme: dark){@starting-style{display:flex}}}',
+            self::wrappedText($applier, [self::v('dark'), self::v('starting')])
+        );
+    }
+
     /** @test */
     public function aMediaOnlyVariantIsAnAtRule(): void
     {
@@ -734,6 +763,20 @@ final class ApplierTest extends TestCase
         return $row;
     }
 
+    /**
+     * `@custom-variant starting (@starting-style)` (TASK-0042): the registry plus that one custom variant.
+     */
+    private static function withStarting(): Applier
+    {
+        $registry = self::registry();
+        $registry->addCustom(
+            'starting',
+            Definition::fromRow('starting', ['starting-style' => true, 'order' => $registry->nextOrder()])
+        );
+
+        return new Applier($registry, new DiagnosticBag());
+    }
+
     private static function v(string $name): Variant
     {
         return new Variant($name, null, null, $name);
@@ -798,5 +841,16 @@ final class ApplierTest extends TestCase
         $sheet = Nesting::flatten(new StyleSheet(self::wrapped($variants)->nodes()));
 
         return Serializer::compact($sheet);
+    }
+
+    /**
+     * @param list<\TailwindPhp\Engine\Candidate\Variant> $variants
+     */
+    private static function wrappedText(Applier $applier, array $variants): string
+    {
+        $wrapped = $applier->wrap(self::decls(), $variants, self::CLASS_SELECTOR);
+        self::assertNotNull($wrapped);
+
+        return self::text($wrapped);
     }
 }

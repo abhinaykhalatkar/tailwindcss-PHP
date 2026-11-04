@@ -27,6 +27,9 @@ use TailwindPhp\Tests\Conformance\Support\Inventory;
  */
 final class EffectsFiltersTest extends TestCase
 {
+    private const BOX = ';box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), '
+        . 'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)';
+
     /** @test */
     public function theRowsAreTheInventorysEffectsFiltersRoots(): void
     {
@@ -148,6 +151,58 @@ final class EffectsFiltersTest extends TestCase
                 '--tw-shadow:0 0 3px var(--tw-shadow-color, currentcolor);box-shadow:var(--tw-inset-shadow), '
                 . 'var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)',
             ],
+            // v4's replaceShadowColors (TASK-0042): a shadow is rewritten only when two offsets are found.
+            'one offset leaves the shadow alone' => ['shadow-[1px_red]', '--tw-shadow:1px red' . self::BOX],
+            'one offset leaves an inset shadow alone' => [
+                'inset-shadow-[1px_red]',
+                '--tw-inset-shadow:inset 1px red' . self::BOX,
+            ],
+            'one offset and a variable' => ['shadow-[1px_var(--x)]', '--tw-shadow:1px var(--x)' . self::BOX],
+            'a variable and a colour have no offsets' => [
+                'shadow-[var(--a)_red]',
+                '--tw-shadow:var(--a) red' . self::BOX,
+            ],
+            'a plus sign is no offset' => ['shadow-[+1px_1px_red]', '--tw-shadow:+1px 1px red' . self::BOX],
+            'a calc is the colour when two offsets precede it' => [
+                'shadow-[0_0_calc(1px)_red]',
+                '--tw-shadow:0 0 var(--tw-shadow-color, calc(1px)) red' . self::BOX,
+            ],
+            'calc offsets are no offsets' => [
+                'shadow-[calc(1px)_calc(1px)_red]',
+                '--tw-shadow:calc(1px) calc(1px) red' . self::BOX,
+            ],
+            'inherit is skipped like inset' => [
+                'shadow-[0_0_1px_inherit]',
+                '--tw-shadow:0 0 1px inherit var(--tw-shadow-color, currentcolor)' . self::BOX,
+            ],
+            'initial is skipped' => [
+                'shadow-[0px_0px_1px_initial]',
+                '--tw-shadow:0px 0px 1px initial var(--tw-shadow-color, currentcolor)' . self::BOX,
+            ],
+            'revert and unset are skipped' => [
+                'shadow-[0_0_1px_revert]',
+                '--tw-shadow:0 0 1px revert var(--tw-shadow-color, currentcolor)' . self::BOX,
+            ],
+            'a keyword in capitals is a colour' => [
+                'shadow-[1px_1px_Inherit]',
+                '--tw-shadow:1px 1px var(--tw-shadow-color, Inherit)' . self::BOX,
+            ],
+            'a colour before the offsets is replaced in place' => [
+                'shadow-[red_0_0]',
+                '--tw-shadow:var(--tw-shadow-color, red) 0 0' . self::BOX,
+            ],
+            'an offset is a number with anything after it' => [
+                'shadow-[1._1._red]',
+                '--tw-shadow:1. 1. var(--tw-shadow-color, red)' . self::BOX,
+            ],
+            'a decimal and a negative are offsets' => [
+                'shadow-[-.5px_.5px_red]',
+                '--tw-shadow:-.5px .5px var(--tw-shadow-color, red)' . self::BOX,
+            ],
+            'only the shadows with offsets of a list are recoloured' => [
+                'shadow-[0_0_#fff,1px_red]',
+                '--tw-shadow:0 0 var(--tw-shadow-color, #fff), 1px red' . self::BOX,
+            ],
             'every shadow of a list is recoloured' => [
                 'shadow-[0_0_10px_red,0_0_5px_blue]',
                 '--tw-shadow:0 0 10px var(--tw-shadow-color, red), 0 0 5px var(--tw-shadow-color, blue);'
@@ -213,6 +268,33 @@ final class EffectsFiltersTest extends TestCase
                 'inset-shadow-[0_1px_red]',
                 '--tw-inset-shadow:inset 0 1px var(--tw-inset-shadow-color, red);box-shadow:var(--tw-inset-shadow), '
                 . 'var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'every shadow of an inset list is inset' => [
+                'inset-shadow-[1px_1px_red,2px_2px_blue]',
+                '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),'
+                . 'inset 2px 2px var(--tw-inset-shadow-color, blue);'
+                . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
+                . 'var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'an inset list keeps the white space after the comma' => [
+                'inset-shadow-[1px_1px_red,_2px_2px_blue]',
+                '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),'
+                . 'inset  2px 2px var(--tw-inset-shadow-color, blue);'
+                . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
+                . 'var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'a variable in an inset list is inset too' => [
+                'inset-shadow-[1px_1px_red,var(--s)]',
+                '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),inset var(--s);'
+                . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
+                . 'var(--tw-ring-shadow), var(--tw-shadow)',
+            ],
+            'an inset keyword of the author is kept as written' => [
+                'inset-shadow-[1px_1px_red,inset_2px_2px_blue]',
+                '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),'
+                . 'inset inset 2px 2px var(--tw-inset-shadow-color, blue);'
+                . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
+                . 'var(--tw-ring-shadow), var(--tw-shadow)',
             ],
             'a variable inset shadow is prefixed' => [
                 'inset-shadow-(--s)',

@@ -2686,7 +2686,7 @@ return [
         'forms' => ['bare', 'important'],
     ],
 
-    // tables-transitions-transforms (25)
+    // tables-transitions-transforms (26)
     'border-collapse' => [
         'family' => 'tables-transitions-transforms',
         'kind' => 'static',
@@ -2952,6 +2952,18 @@ return [
         'forms' => ['bare', 'arbitrary', 'var', 'important'],
     ],
     'transform' => [
+        'family' => 'tables-transitions-transforms',
+        'kind' => 'static',
+        'theme' => [],
+        'bare' => null,
+        'fraction' => false,
+        'negative' => false,
+        'arbitrary' => false,
+        'modifier' => null,
+        'tier' => 'T1',
+        'forms' => ['static', 'important'],
+    ],
+    'transform-cpu' => [
         'family' => 'tables-transitions-transforms',
         'kind' => 'static',
         'theme' => [],

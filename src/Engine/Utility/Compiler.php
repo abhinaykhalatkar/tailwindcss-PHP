@@ -7,6 +7,8 @@ namespace TailwindPhp\Engine\Utility;
 use TailwindPhp\Engine\Candidate\Candidate;
 use TailwindPhp\Engine\Candidate\Modifier;
 use TailwindPhp\Engine\Candidate\Value\ArbitraryValue;
+use TailwindPhp\Engine\Candidate\Value\NamedValue;
+use TailwindPhp\Engine\Candidate\Value\VarValue;
 use TailwindPhp\Engine\Css\Node\AtRule;
 use TailwindPhp\Engine\Css\Node\Declaration;
 use TailwindPhp\Engine\Css\Node\Node;
@@ -42,6 +44,7 @@ final class Compiler
     /**
      * Bytes a custom property name may hold after its `--`.
      */
+    private const LETTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
     private const CUSTOM_NAME_BYTES = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
 
     /**
@@ -68,6 +71,11 @@ final class Compiler
      * @var array<string, CompiledUtility|false> Candidate string => result.
      */
     private $memo = [];
+
+    /**
+     * @var array<string, CompiledUtility|false> Utility part => result (T-05, see {@see self::compile()}).
+     */
+    private $bodies = [];
 
     public function __construct(Registry $registry, ?ValueResolver $resolver = null)
     {
@@ -112,8 +120,72 @@ final class Compiler
     /**
      * Compile one interpretation, or null when no definition of its root
      * takes it. Variants are not applied here (TASK-0031).
+     *
+     * The answer, a refusal included, is memoised by the candidate's utility
+     * part, everything but its variants (kind, root, value, modifier, negative,
+     * important, property): every variant prefix of one utility builds its body
+     * once. The raw-text memo of {@see self::compileReadings()} is not enough
+     * for that: `[&_.x1]:u0`, `[&_.x2]:u0` … are distinct texts of one utility,
+     * and a body that is built and then refused by the emission guard (an
+     * `@apply` chain spliced past the depth limit) was walked again for each of
+     * them — 53 ms apiece, 27 minutes over a default candidate cap (T-05). The
+     * same contract as the raw memo holds: one instance per compile and per theme.
      */
     public function compile(Candidate $candidate, ThemeRegistry $theme): ?CompiledUtility
+    {
+        $key = self::utilityKey($candidate);
+
+        if ($key === null) {
+            return $this->build($candidate, $theme);
+        }
+
+        if (isset($this->bodies[$key])) {
+            return $this->bodies[$key] === false ? null : $this->bodies[$key];
+        }
+
+        $result = $this->build($candidate, $theme);
+        $this->bodies[$key] = $result ?? false;
+
+        return $result;
+    }
+
+    /**
+     * The key of a candidate's utility part, or null when it cannot be told from another by its fields (a
+     * value of a class this compiler does not know), in which case nothing is memoised. Every text is length
+     * prefixed, so no two different parts share a key.
+     */
+    private static function utilityKey(Candidate $candidate): ?string
+    {
+        $value = $candidate->value;
+
+        if ($value === null) {
+            $valueKey = '-';
+        } elseif ($value instanceof NamedValue) {
+            $valueKey = 'n' . ($value->fraction ? '1' : '0') . self::part($value->name);
+        } elseif ($value instanceof VarValue) {
+            $valueKey = 'v' . self::part($value->name) . self::part((string) $value->dataType);
+        } elseif ($value instanceof ArbitraryValue) {
+            $valueKey = 'a' . self::part($value->raw) . self::part($value->normalised)
+                . self::part((string) $value->dataType);
+        } else {
+            return null;
+        }
+
+        $modifier = $candidate->modifier === null
+            ? '-'
+            : self::part($candidate->modifier->kind) . self::part($candidate->modifier->value);
+
+        return self::part($candidate->kind) . self::part((string) $candidate->root)
+            . ($candidate->negative ? '1' : '0') . ($candidate->important ? '1' : '0')
+            . self::part((string) $candidate->property) . $valueKey . $modifier;
+    }
+
+    private static function part(string $text): string
+    {
+        return \strlen($text) . ':' . $text;
+    }
+
+    private function build(Candidate $candidate, ThemeRegistry $theme): ?CompiledUtility
     {
         if ($candidate->kind === Candidate::ARBITRARY) {
             return $this->arbitraryProperty($candidate);
@@ -138,9 +210,43 @@ final class Compiler
                     $candidate->important
                 );
             }
+
+            // A value one kind of the root claims is not offered to the later kinds just because a modifier
+            // makes that kind refuse it: v4 picks the kind by the value's type first (`bg-[10px]/50` is a
+            // background size, which takes no opacity, so it is nothing — not a colour mixed with `10px`).
+            // Cost: one extra body build for every modifier-less kind the loop passes before one takes the
+            // candidate (`bg-red-500/50` passes seven), only for a candidate that carries a modifier; measured
+            // at about 3 % on 4 488 `bg-<colour>-<shade>/<n>` candidates.
+            if (
+                $candidate->modifier !== null
+                && $definition->modifier() === null
+                && $this->claims($definition, $candidate, $theme)
+            ) {
+                return null;
+            }
         }
 
         return null;
+    }
+
+    /**
+     * Whether $definition, which takes no modifier, would have taken the candidate without its modifier.
+     */
+    private function claims(Definition $definition, Candidate $candidate, ThemeRegistry $theme): bool
+    {
+        $bare = new Candidate(
+            $candidate->raw,
+            $candidate->variants,
+            $candidate->important,
+            $candidate->negative,
+            $candidate->kind,
+            $candidate->root,
+            $candidate->value,
+            null,
+            $candidate->property
+        );
+
+        return $this->body($definition, $bare, $theme) !== null;
     }
 
     /**
@@ -235,8 +341,9 @@ final class Compiler
      * - a colour the browser may not mix (a theme variable, `currentcolor`, any
      *   `var()`) gets a fallback first — the theme variable's value mixed in
      *   sRGB (its plain value when the percentage is a variable), otherwise the
-     *   colour unmixed — and the oklab form under
-     *   `@supports (color: color-mix(in lab, red, red))`.
+     *   colour unmixed; a theme colour that is itself `currentcolor` or one
+     *   `var()` falls back to its reference, see {@see self::isUnmixable()} — and
+     *   the oklab form under `@supports (color: color-mix(in lab, red, red))`.
      *
      * @param array{0: string, 1: list<string>} $color
      *
@@ -260,10 +367,15 @@ final class Compiler
         $variable = \strncmp($color[0], 'var(--', 6) === 0 && $color[1] !== [] ? $theme->get($color[1][0]) : null;
 
         if ($variable !== null) {
-            $fallback = \strncmp($opacity[0], 'var(', 4) === 0
-                ? $variable->value()
-                : 'color-mix(in srgb, ' . $variable->value() . ' ' . $opacity[0] . ', transparent)';
-        } elseif (\strpos($color[0], 'var(') !== false || \strtolower($color[0]) === 'currentcolor') {
+            if (self::isUnmixable($variable->value(), true)) {
+                // A theme colour that is itself `currentcolor` or one variable: the reference is the fallback.
+                $fallback = $color[0];
+            } elseif (\strncmp($opacity[0], 'var(', 4) === 0) {
+                $fallback = $variable->value();
+            } else {
+                $fallback = 'color-mix(in srgb, ' . $variable->value() . ' ' . $opacity[0] . ', transparent)';
+            }
+        } elseif (self::isUnmixable($color[0])) {
             $fallback = $color[0];
         } else {
             return [self::declare($definition, $mixed), $used];
@@ -280,6 +392,21 @@ final class Compiler
         $nodes[] = new AtRule('supports', '(color: color-mix(in lab, red, red))', $supported);
 
         return [$nodes, $used];
+    }
+
+    /**
+     * Whether a colour cannot be mixed ahead of time, so an opacity on it needs a fallback line: it is
+     * `currentcolor` (any case) or reads a variable. For a colour written in the candidate any `var(` counts
+     * (`rgb(var(--x) 0 0)`); for the value of a theme colour ($wholeValue) only a value that is `currentcolor`
+     * or starts with `var(` does: the CLI mixes `rgb(var(--x) 0 0)` ahead of time when it comes from the theme.
+     */
+    public static function isUnmixable(string $color, bool $wholeValue = false): bool
+    {
+        if (\strtolower($color) === 'currentcolor') {
+            return true;
+        }
+
+        return $wholeValue ? \strncmp($color, 'var(', 4) === 0 : \strpos($color, 'var(') !== false;
     }
 
     /**
@@ -408,10 +535,11 @@ final class Compiler
 
     /**
      * A plain property (or at-rule) name: `--` followed by letters, digits,
-     * `-` or `_` (a custom property), or an optional vendor `-`, a lower-case
-     * letter, then lower-case letters, digits and `-`.
+     * `-` or `_` (a custom property), or an optional vendor `-`, an ASCII
+     * letter, then ASCII letters, digits and `-` (the CLI writes `COLOR` as it
+     * is written; letters only, so nothing that could end a declaration).
      */
-    private static function isPropertyName(string $name): bool
+    public static function isPropertyName(string $name): bool
     {
         $length = \strlen($name);
 
@@ -427,8 +555,8 @@ final class Compiler
         $start = $name[0] === '-' ? 1 : 0;
 
         return $start < $length
-            && \strspn($name[$start], 'abcdefghijklmnopqrstuvwxyz') === 1
-            && \strspn($name, 'abcdefghijklmnopqrstuvwxyz0123456789-', $start) === $length - $start;
+            && \strspn($name[$start], self::LETTERS) === 1
+            && \strspn($name, self::LETTERS . '0123456789-', $start) === $length - $start;
     }
 
     /**

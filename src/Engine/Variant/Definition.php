@@ -17,6 +17,8 @@ use TailwindPhp\Support\Str;
  *     selector    a selector, or a list of selectors, each containing `&`
  *                 (the candidate's class selector goes where `&` is)
  *     media       an `@media` query; supports / container likewise
+ *     starting-style  `true`: wrap in `@starting-style { … }` (a custom variant
+ *                 `@custom-variant x (@starting-style)`; no query)
  *     compound    `group`, `peer`: the row is a template for a compound variant
  *     inner       on an expanded compound row, the inner variant's selector
  *     inject      declarations added inside the selector rule (`before`, `after`)
@@ -36,6 +38,7 @@ final class Definition
         'media' => true,
         'supports' => true,
         'container' => true,
+        'starting-style' => true,
         'compound' => true,
         'inner' => true,
         'inject' => true,
@@ -76,6 +79,11 @@ final class Definition
      * @var string|null
      */
     private $container;
+
+    /**
+     * @var bool
+     */
+    private $startingStyle;
 
     /**
      * @var string|null
@@ -119,6 +127,7 @@ final class Definition
         ?string $media,
         ?string $supports,
         ?string $container,
+        bool $startingStyle,
         ?string $compound,
         ?string $inner,
         array $inject,
@@ -132,6 +141,7 @@ final class Definition
         $this->media = $media;
         $this->supports = $supports;
         $this->container = $container;
+        $this->startingStyle = $startingStyle;
         $this->compound = $compound;
         $this->inner = $inner;
         $this->inject = $inject;
@@ -172,8 +182,16 @@ final class Definition
         $functional = self::optionalString($label, 'functional', $row);
         $theme = self::optionalString($label, 'theme', $row);
 
-        if ($selectors === [] && $media === null && $supports === null && $container === null) {
-            throw new \InvalidArgumentException($label . ' needs a selector, media, supports or container.');
+        $startingStyle = $row['starting-style'] ?? false;
+
+        if (!\is_bool($startingStyle)) {
+            throw new \InvalidArgumentException($label . ' has a "starting-style" that is not a boolean.');
+        }
+
+        if ($selectors === [] && $media === null && $supports === null && $container === null && !$startingStyle) {
+            throw new \InvalidArgumentException(
+                $label . ' needs a selector, media, supports, container or starting-style.'
+            );
         }
 
         if ($inner !== null && ($compound === null || !SelectorList::containsAmpersand($inner))) {
@@ -191,6 +209,7 @@ final class Definition
             $media,
             $supports,
             $container,
+            $startingStyle,
             $compound,
             $inner,
             self::parseInject($label, $row['inject'] ?? []),
@@ -231,6 +250,14 @@ final class Definition
     public function container(): ?string
     {
         return $this->container;
+    }
+
+    /**
+     * Whether the variant wraps in `@starting-style` (no query).
+     */
+    public function startingStyle(): bool
+    {
+        return $this->startingStyle;
     }
 
     public function compound(): ?string

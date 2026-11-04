@@ -15,6 +15,7 @@ use TailwindPhp\Engine\Css\Node\Declaration;
 use TailwindPhp\Engine\Css\Node\Node;
 use TailwindPhp\Engine\Data\Colors;
 use TailwindPhp\Engine\Theme\ThemeRegistry;
+use TailwindPhp\Engine\Utility\Compiler;
 use TailwindPhp\Engine\Utility\Definition;
 use TailwindPhp\Engine\Utility\ValueResolver;
 
@@ -46,6 +47,11 @@ final class EffectsFilters implements FamilyHandlerInterface
     private const COLOR_SUPPORT = '(color: color-mix(in lab, red, red))';
 
     private const LAB_SUPPORT = '(color: lab(from red l a b))';
+
+    /**
+     * Tokens of a shadow that are neither an offset nor a colour: `inset` and the CSS-wide keywords.
+     */
+    private const SKIPPED = ['inset' => true, 'inherit' => true, 'initial' => true, 'revert' => true, 'unset' => true];
 
     private const BOX_SHADOW = 'var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
         . 'var(--tw-ring-shadow), var(--tw-shadow)';
@@ -207,7 +213,7 @@ final class EffectsFilters implements FamilyHandlerInterface
 
         [$reference, $used] = ValueResolver::reference($color);
 
-        return $this->colorNodes($color->value(), $reference, $used, $modifier, $theme, $inset);
+        return $this->colorNodes($color->value(), $reference, $used, $modifier, $theme, $inset, true);
     }
 
     /**
@@ -253,7 +259,8 @@ final class EffectsFilters implements FamilyHandlerInterface
         array $used,
         ?Modifier $modifier,
         ThemeRegistry $theme,
-        bool $inset
+        bool $inset,
+        bool $fromTheme = false
     ): ?array {
         $property = self::colorProperty($inset);
         $alpha = $inset ? '--tw-inset-shadow-alpha' : '--tw-shadow-alpha';
@@ -270,9 +277,17 @@ final class EffectsFilters implements FamilyHandlerInterface
             $used = \array_merge($used, $opacity[1]);
 
             if ($opacity[0] !== '100%') {
-                $fallback = \strncmp($opacity[0], 'var(', 4) === 0
-                    ? $raw
-                    : 'color-mix(in srgb, ' . $raw . ' ' . $opacity[0] . ', transparent)';
+                // The fallback is the plain colour where a mix could not be computed: a variable alpha, a
+                // colour that is a variable or `currentcolor` (as the CLI writes `bg-current/50` and
+                // `shadow-[color:var(--c)]/50`). A theme colour that is itself `currentcolor` or one variable
+                // falls back to its reference, whatever the alpha.
+                if ($fromTheme && Compiler::isUnmixable($raw, true)) {
+                    $fallback = $reference;
+                } elseif (\strncmp($opacity[0], 'var(', 4) === 0 || (!$fromTheme && Compiler::isUnmixable($raw))) {
+                    $fallback = $raw;
+                } else {
+                    $fallback = 'color-mix(in srgb, ' . $raw . ' ' . $opacity[0] . ', transparent)';
+                }
                 $mixed = 'color-mix(in oklab, ' . $reference . ' ' . $opacity[0] . ', transparent)';
             }
         }
@@ -298,14 +313,18 @@ final class EffectsFilters implements FamilyHandlerInterface
         $property = $inset ? '--tw-inset-shadow' : '--tw-shadow';
         $alphaProperty = $inset ? '--tw-inset-shadow-alpha' : '--tw-shadow-alpha';
         $colorProperty = self::colorProperty($inset);
-        $inline = $inset && $prefix ? 'inset ' : '';
-        $plain = $inline . ($replace ? self::replaceColors($text, $colorProperty, null) : $text);
+        $list = $inset && $prefix;
+        $plain = $list
+            ? self::insetShadows($text, $colorProperty, null, $replace)
+            : ($replace ? self::replaceColors($text, $colorProperty, null) : $text);
         $nodes = [];
 
         if ($alpha === null) {
             $nodes[] = new Declaration($property, $plain);
         } else {
-            $tinted = $inline . ($replace ? self::replaceColors($text, $colorProperty, $alpha) : $text);
+            $tinted = $list
+                ? self::insetShadows($text, $colorProperty, $alpha, $replace)
+                : ($replace ? self::replaceColors($text, $colorProperty, $alpha) : $text);
             $nodes[] = new Declaration($alphaProperty, $alpha);
 
             if (\strncmp($alpha, 'var(', 4) === 0) {
@@ -329,46 +348,80 @@ final class EffectsFilters implements FamilyHandlerInterface
     }
 
     /**
-     * Every colour of a comma-separated shadow list becomes
+     * The colour of every shadow of a comma-separated list becomes
      * `var(<property>, <colour>)` (`oklab(from <colour> l a b / <alpha>)`
-     * inside when $alpha is given); a shadow without one gets `currentcolor`;
-     * a shadow that is a single `var()` is left alone.
+     * inside when $alpha is given), as v4's `replaceShadowColors` does it: a
+     * shadow is rewritten only when two offsets (a number, see {@see self::isOffset()})
+     * are found in it; `inset` and the CSS-wide keywords
+     * (`inherit`, `initial`, `revert`, `unset`) are skipped; the first other
+     * token is the colour and is replaced in place; with none, `currentcolor` is
+     * appended. A shadow with fewer than two offsets (`3px`, `var(--s)`,
+     * `1px red`, `calc(1px) calc(1px) red`) is left as written.
      */
     private static function replaceColors(string $text, string $property, ?string $alpha): string
     {
         $shadows = [];
 
         foreach (self::split($text, ',') as $shadow) {
-            $tokens = self::split($shadow, ' ');
+            $shadows[] = self::replaceShadowColor($shadow, $property, $alpha);
+        }
 
-            // A shadow of one token (`var(--s)`, `3px`) is a whole value, used as written.
-            if (\count($tokens) === 1) {
-                $shadows[] = $tokens[0];
+        return \implode(', ', $shadows);
+    }
+
+    /**
+     * Every shadow of the list gets `inset ` in front, as the CLI writes it
+     * (`inset-shadow-[1px_1px_red,2px_2px_blue]` is two inset shadows), and then
+     * its colour replaced like any other. The CLI joins the shadows with a bare
+     * comma and leaves each one's own leading space, so a second shadow written
+     * after `,_` has two spaces after its `inset`.
+     */
+    private static function insetShadows(string $text, string $property, ?string $alpha, bool $replace): string
+    {
+        $shadows = [];
+
+        foreach (self::splitUntrimmed($text) as $shadow) {
+            $shadow = 'inset ' . $shadow;
+            $shadows[] = $replace ? self::replaceShadowColor($shadow, $property, $alpha) : $shadow;
+        }
+
+        return \implode(',', $shadows);
+    }
+
+    private static function replaceShadowColor(string $shadow, string $property, ?string $alpha): string
+    {
+        $color = null;
+        $offsets = 0;
+
+        foreach (self::split($shadow, ' ') as $token) {
+            if (isset(self::SKIPPED[$token])) {
+                continue;
+            }
+
+            if (self::isOffset($token)) {
+                ++$offsets;
 
                 continue;
             }
 
-            $found = false;
-
-            foreach ($tokens as $index => $token) {
-                if ($token === 'inset' || self::isLength($token)) {
-                    continue;
-                }
-
-                $tokens[$index] = self::wrapColor($token, $property, $alpha);
-                $found = true;
-
-                break;
+            if ($color === null) {
+                $color = $token;
             }
-
-            if (!$found) {
-                $tokens[] = self::wrapColor('currentcolor', $property, $alpha);
-            }
-
-            $shadows[] = \implode(' ', $tokens);
         }
 
-        return \implode(', ', $shadows);
+        if ($offsets < 2) {
+            return $shadow;
+        }
+
+        if ($color === null) {
+            return $shadow . ' ' . self::wrapColor('currentcolor', $property, $alpha);
+        }
+
+        $position = (int) \strpos($shadow, $color);
+
+        return \substr($shadow, 0, $position)
+            . self::wrapColor($color, $property, $alpha)
+            . \substr($shadow, $position + \strlen($color));
     }
 
     private static function wrapColor(string $color, string $property, ?string $alpha): string
@@ -379,28 +432,59 @@ final class EffectsFilters implements FamilyHandlerInterface
     }
 
     /**
-     * Whether a shadow token is a length or a number (`0`, `10px`, `-1px`,
-     * `.5em`, `calc(…)`), not a colour.
+     * Whether a shadow token counts as an offset: an optional `-`, then a digit
+     * or a `.` followed by a digit, whatever follows (`1px`, `.5`, `-1.5em`, `1%`
+     * and also `1.`, `1e3`, `1/2`: the 4.1.18 CLI looks at the start only). A `+`
+     * sign, a function (`calc(…)`) and a lone `-` or `.` are not offsets.
      */
-    private static function isLength(string $token): bool
+    private static function isOffset(string $token): bool
     {
-        $first = $token[0];
+        $position = $token[0] === '-' ? 1 : 0;
 
-        if ($first >= '0' && $first <= '9' || $first === '.') {
+        if (!isset($token[$position])) {
+            return false;
+        }
+
+        $char = $token[$position];
+
+        if ($char >= '0' && $char <= '9') {
             return true;
         }
 
-        if (($first === '-' || $first === '+') && isset($token[1])) {
-            return ($token[1] >= '0' && $token[1] <= '9') || $token[1] === '.';
-        }
+        return $char === '.' && isset($token[$position + 1])
+            && $token[$position + 1] >= '0' && $token[$position + 1] <= '9';
+    }
 
-        foreach (['calc(', 'min(', 'max(', 'clamp('] as $function) {
-            if (\strncmp($token, $function, \strlen($function)) === 0) {
-                return true;
+    /**
+     * $text split at the commas outside parentheses, each part as written (its own leading space kept),
+     * parts that are only white space dropped.
+     *
+     * @return list<string>
+     */
+    private static function splitUntrimmed(string $text): array
+    {
+        $parts = [];
+        $depth = 0;
+        $start = 0;
+
+        for ($i = 0, $length = \strlen($text); $i < $length; ++$i) {
+            $char = $text[$i];
+
+            if ($char === '(') {
+                ++$depth;
+            } elseif ($char === ')') {
+                $depth = \max(0, $depth - 1);
+            } elseif ($char === ',' && $depth === 0) {
+                $parts[] = (string) \substr($text, $start, $i - $start);
+                $start = $i + 1;
             }
         }
 
-        return false;
+        $parts[] = (string) \substr($text, $start);
+
+        return \array_values(\array_filter($parts, static function (string $part): bool {
+            return \trim($part) !== '';
+        }));
     }
 
     /**

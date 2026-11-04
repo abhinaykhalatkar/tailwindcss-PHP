@@ -33,7 +33,7 @@ final class TablesTransitionsTransformsTest extends TestCase
         $inventory = new Inventory();
         $roots = $inventory->families()['tables-transitions-transforms'];
 
-        self::assertCount(25, $roots);
+        self::assertCount(26, $roots);
         self::assertSame($roots, \array_keys(TablesTransitionsTransforms::rows()), 'same roots, same order');
     }
 
@@ -222,6 +222,11 @@ final class TablesTransitionsTransformsTest extends TestCase
             'border spacing has no fraction' => ['border-spacing-1/2', null],
             'transform composition' => [
                 'transform',
+                'transform:var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) '
+                . 'var(--tw-skew-y,)',
+            ],
+            'transform cpu is the composition and registers nothing' => [
+                'transform-cpu',
                 'transform:var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) '
                 . 'var(--tw-skew-y,)',
             ],

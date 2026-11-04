@@ -154,6 +154,7 @@ final class TablesTransitionsTransforms
                     '--tw-skew-y',
                 ],
             ],
+            'transform-cpu' => ['static' => ['transform' => self::TRANSFORM]],
             'transform-gpu' => ['static' => ['transform' => 'translateZ(0) ' . self::TRANSFORM]],
             'transform-none' => ['static' => ['transform' => 'none']],
         ];

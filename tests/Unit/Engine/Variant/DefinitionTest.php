@@ -47,6 +47,36 @@ final class DefinitionTest extends TestCase
     }
 
     /** @test */
+    public function aStartingStyleRowIsAnAtRuleWithNoQuery(): void
+    {
+        $definition = Definition::fromRow('starting', ['starting-style' => true, 'order' => 190000]);
+
+        self::assertTrue($definition->startingStyle());
+        self::assertSame([], $definition->selectors());
+        self::assertNull($definition->media());
+        self::assertFalse(Definition::fromRow('print', ['media' => 'print', 'order' => 1])->startingStyle());
+        self::assertTrue($definition->withNameAndOrder('other', 5)->startingStyle(), 'a custom variant keeps it');
+    }
+
+    /** @test */
+    public function aStartingStyleKeyThatIsNotABooleanIsRefused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('"starting-style" that is not a boolean');
+
+        Definition::fromRow('starting', ['starting-style' => 'yes', 'order' => 1]);
+    }
+
+    /** @test */
+    public function aRowWithNothingToApplyIsRefusedEvenWithAFalseStartingStyle(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('needs a selector, media, supports, container or starting-style');
+
+        Definition::fromRow('nothing', ['starting-style' => false, 'order' => 1]);
+    }
+
+    /** @test */
     public function aSelectorMayBeAListOfSelectors(): void
     {
         $definition = Definition::fromRow('selection', [

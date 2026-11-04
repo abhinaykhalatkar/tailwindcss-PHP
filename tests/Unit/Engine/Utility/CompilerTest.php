@@ -704,6 +704,63 @@ final class CompilerTest extends TestCase
         self::assertNotNull(self::css('text-sm', $registry, $theme));
     }
 
+    /**
+     * A value one kind of a root claims is not offered to a later kind because a modifier makes the first refuse
+     * it (TASK-0042): v4 chooses the kind by the value's type, so a length with an opacity is nothing, not a
+     * colour mixed with a length.
+     *
+     * @test
+     */
+    public function aValueTypedAsAnotherKindIsNotMixedAsAColour(): void
+    {
+        $registry = new Registry([
+            'k' => [
+                'variants' => [
+                    ['props' => ['a'], 'arbitrary' => ['length']],
+                    ['props' => ['b'], 'arbitrary' => true, 'modifier' => 'opacity'],
+                ],
+            ],
+        ]);
+
+        self::assertSame('a:3px', self::css('k-[3px]', $registry));
+        self::assertNull(self::css('k-[3px]/50', $registry), 'the first kind claims a length and takes no opacity');
+        self::assertSame('b:red', self::css('k-[red]', $registry));
+        self::assertNotNull(self::css('k-[red]/50', $registry), 'a colour has no earlier kind');
+        self::assertNotNull(self::css('k-[var(--x)]/50', $registry), 'a variable fits no typed kind');
+    }
+
+    /**
+     * The same on the rows that need it: `bg` has size, image and position kinds before its last colour.
+     *
+     * @test
+     *
+     * @dataProvider typedBackgroundValues
+     */
+    public function aTypedBackgroundValueTakesNoOpacity(string $candidate, bool $accepted): void
+    {
+        self::assertSame($accepted, self::css($candidate) !== null, $candidate);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: bool}>
+     */
+    public static function typedBackgroundValues(): array
+    {
+        return [
+            'a url' => ['bg-[url(x.png)]/50', false],
+            'a length' => ['bg-[10px]/50', false],
+            'a length by hint' => ['bg-[length:10px]/50', false],
+            'an image by hint' => ['bg-[image:url(x)]/50', false],
+            'a position by hint' => ['bg-[position:10px]/50', false],
+            'a colour' => ['bg-[#fff]/50', true],
+            'a colour keyword' => ['bg-[red]/50', true],
+            'a variable' => ['bg-[var(--x)]/50', true],
+            'a theme colour' => ['bg-red-500/50', true],
+            'the typed value alone' => ['bg-[10px]', true],
+            'the url alone' => ['bg-[url(x.png)]', true],
+        ];
+    }
+
     /** @test */
     public function everyLayoutRowIsValid(): void
     {

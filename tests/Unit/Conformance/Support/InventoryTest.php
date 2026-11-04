@@ -40,12 +40,12 @@ final class InventoryTest extends TestCase
         'typography' => 46,
         'backgrounds-borders' => 42,
         'effects-filters' => 5,
-        'tables-transitions-transforms' => 25,
+        'tables-transitions-transforms' => 26,
         'interactivity-svg-accessibility' => 49,
         'arbitrary-property' => 1,
     ];
 
-    private const TOTAL = 293;
+    private const TOTAL = 294;
 
     private const KEYS = [
         'family', 'kind', 'theme', 'bare', 'fraction', 'negative', 'arbitrary', 'modifier', 'tier', 'forms',

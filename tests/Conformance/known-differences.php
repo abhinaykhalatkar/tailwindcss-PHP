@@ -114,4 +114,27 @@ return [
         'reason' => 'The CLI accepts peer-[selector]; arbitrary compound variants come with M3.',
         'since' => '4.1.18',
     ],
+
+    // CLI behaviour a data row cannot say (TASK-0042). All four candidates are in corpus/utilities/edge-quirks.txt.
+    [
+        'candidate' => 'stroke-1/2',
+        'corpus' => 'utilities/edge-quirks',
+        'class' => 'bug',
+        'reason' => 'The CLI reads a whole-number stroke width with a modifier and drops it; no row can say that.',
+        'since' => '4.1.18',
+    ],
+    [
+        'candidate' => 'stroke-2/50',
+        'corpus' => 'utilities/edge-quirks',
+        'class' => 'bug',
+        'reason' => 'The CLI reads a whole-number stroke width with a modifier and drops it; no row can say that.',
+        'since' => '4.1.18',
+    ],
+    [
+        'candidate' => 'bg-[size:10px]',
+        'corpus' => 'utilities/edge-quirks',
+        'class' => 'bug',
+        'reason' => 'The CLI reads the size hint as background-size; the engine has no size type and writes a colour.',
+        'since' => '4.1.18',
+    ],
 ];

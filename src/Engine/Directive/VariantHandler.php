@@ -104,6 +104,11 @@ final class VariantHandler
             $keyword = \strtolower((string) \substr($inner, 1, $space - 1));
             $query = \trim((string) \substr($inner, $space));
 
+            // `@starting-style` has no query; the other at-rules need one.
+            if ($keyword === 'starting-style') {
+                return $query === '' ? ['starting-style' => true] : null;
+            }
+
             if ($query === '' || !\in_array($keyword, ['media', 'supports', 'container'], true)) {
                 return null;
             }

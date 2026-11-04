@@ -754,6 +754,12 @@
   .transform\! {
     transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,) !important;
   }
+  .transform-cpu {
+    transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
+  }
+  .transform-cpu\! {
+    transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,) !important;
+  }
   .transform-gpu {
     transform: translateZ(0) var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
   }
@@ -1057,6 +1063,13 @@
       }
     }
   }
+  .group-hover\:transform-cpu {
+    &:is(:where(.group):hover *) {
+      @media (hover: hover) {
+        transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
+      }
+    }
+  }
   .group-hover\:transform-gpu {
     &:is(:where(.group):hover *) {
       @media (hover: hover) {
@@ -1249,6 +1262,13 @@
       }
     }
   }
+  .hover\:transform-cpu {
+    &:hover {
+      @media (hover: hover) {
+        transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
+      }
+    }
+  }
   .hover\:transform-gpu {
     &:hover {
       @media (hover: hover) {
@@ -1401,6 +1421,11 @@
     }
   }
   .md\:transform {
+    @media (width >= 48rem) {
+      transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
+    }
+  }
+  .md\:transform-cpu {
     @media (width >= 48rem) {
       transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
     }
@@ -1619,6 +1644,15 @@
       }
     }
   }
+  .md\:hover\:transform-cpu {
+    @media (width >= 48rem) {
+      &:hover {
+        @media (hover: hover) {
+          transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
+        }
+      }
+    }
+  }
   .md\:hover\:transform-gpu {
     @media (width >= 48rem) {
       &:hover {
@@ -1789,6 +1823,11 @@
       transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
     }
   }
+  .dark\:transform-cpu {
+    @media (prefers-color-scheme: dark) {
+      transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
+    }
+  }
   .dark\:transform-gpu {
     @media (prefers-color-scheme: dark) {
       transform: translateZ(0) var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
@@ -1927,6 +1966,11 @@
     }
   }
   .\[\&\>\*\]\:transform {
+    &>* {
+      transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
+    }
+  }
+  .\[\&\>\*\]\:transform-cpu {
     &>* {
       transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
     }

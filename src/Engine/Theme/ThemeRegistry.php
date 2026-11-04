@@ -75,6 +75,13 @@ final class ThemeRegistry
         ],
     ];
 
+    /**
+     * The two default variables v4 writes as `--theme(--x, initial)`.
+     *
+     * @var array<string, true>
+     */
+    private const UNSET_DEFAULTS = ['--default-font-family' => true, '--default-mono-font-family' => true];
+
     private const SPACE = " \t\r\n\f";
 
     /**
@@ -421,12 +428,13 @@ final class ThemeRegistry
      * A default variable whose whole value is one `var(--x)` of a variable that
      * is not defined: v4 writes those as `--theme(--x, initial)`
      * (`--default-font-family`, `--default-mono-font-family`), so once `--x` is
-     * reset the variable is `initial` — not emitted, and not followed. Authored
-     * variables are emitted as written whatever they read.
+     * reset the variable is `initial` — not emitted, and not followed. Only
+     * those two names qualify: any other variable, in a default block or not,
+     * is emitted as written whatever it reads.
      */
     private function isUnsetDefault(string $name): bool
     {
-        if (!$this->isDefaultVar($name)) {
+        if (!isset(self::UNSET_DEFAULTS[$name]) || !$this->isDefaultVar($name)) {
             return false;
         }
 

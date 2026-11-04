@@ -34,6 +34,7 @@ final class InteractivitySvgAccessibilityGoldenTest extends TestCase
         'edge-arbitrary',
         'edge-modifiers',
         'edge-important',
+        'edge-quirks',
     ];
 
     private const THRESHOLD = 0.98;
@@ -46,6 +47,9 @@ final class InteractivitySvgAccessibilityGoldenTest extends TestCase
         self::assertGreaterThan(400, $result->total(), 'the corpus has interactivity-svg-accessibility candidates');
         self::assertGreaterThanOrEqual(self::THRESHOLD, $result->rate(), $result->report());
         self::assertSame([], $result->mismatches(), $result->report());
+        // `edge-quirks` holds the two `stroke` widths with a modifier the CLI accepts and drops (TASK-0042): both are
+        // allow-listed, and the runner fails if one ever starts to match.
+        self::assertSame(['stroke-1/2', 'stroke-2/50'], $result->skipped(), 'the allow-listed stroke quirks');
     }
 
     /**

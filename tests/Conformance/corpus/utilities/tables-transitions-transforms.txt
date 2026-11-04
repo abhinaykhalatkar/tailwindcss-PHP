@@ -345,6 +345,15 @@ md:hover:transform
 dark:transform
 group-hover:transform
 [&>*]:transform
+# transform-cpu
+transform-cpu
+transform-cpu!
+md:transform-cpu
+hover:transform-cpu
+md:hover:transform-cpu
+dark:transform-cpu
+group-hover:transform-cpu
+[&>*]:transform-cpu
 # transform-gpu
 transform-gpu
 transform-gpu!

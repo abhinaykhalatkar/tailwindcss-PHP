@@ -14,6 +14,8 @@ use TailwindPhp\Tests\Unit\Engine\Utility\Support\FamilyGoldenRunner;
  * utility compiler, wrapped in its variants by the real variant applier, and compared with
  * the rules the pinned CLI emitted for it.
  *
+ * `edge-quirks` is included for its `bg` lines (typed values with an opacity, and the size hint).
+ *
  * `edge-colors` is included because most of it is this family (`bg-*`, `border-*`, `ring-*`
  * colours). `edge-rejections` is not: of its five family lines, `bg-[url(javascript:alert(1))]`
  * is allow-listed for the CLI's output, but the runner reads the golden with `Css\Parser`,
@@ -33,6 +35,7 @@ final class BackgroundsBordersGoldenTest extends TestCase
         'edge-modifiers',
         'edge-important',
         'edge-colors',
+        'edge-quirks',
     ];
 
     private const THRESHOLD = 0.98;
@@ -47,6 +50,8 @@ final class BackgroundsBordersGoldenTest extends TestCase
         self::assertGreaterThanOrEqual(self::THRESHOLD, $result->rate(), $result->report());
         // The report lists every mismatch; there is none today.
         self::assertSame([], $result->mismatches(), $result->report());
-        self::assertSame([], $result->skipped(), 'nothing in the BackgroundsBorders corpus is allow-listed');
+        // `edge-quirks` (TASK-0042): the five typed values with an opacity are nothing on both sides and gated here;
+        // `bg-[size:10px]` is the one allow-listed line (the engine has no `size` type hint).
+        self::assertSame(['bg-[size:10px]'], $result->skipped(), 'only the size-hint quirk is allow-listed');
     }
 }

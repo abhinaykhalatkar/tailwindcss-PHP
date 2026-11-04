@@ -15,6 +15,7 @@ use TailwindPhp\Engine\Css\Node\Node;
 use TailwindPhp\Engine\Css\Node\Rule;
 use TailwindPhp\Engine\Data\DefaultTheme;
 use TailwindPhp\Engine\Data\PropertyOrder;
+use TailwindPhp\Engine\Theme\ThemeFlags;
 use TailwindPhp\Engine\Theme\ThemeRegistry;
 use TailwindPhp\Engine\Utility\CompiledUtility;
 use TailwindPhp\Engine\Utility\Compiler;
@@ -37,11 +38,12 @@ final class SpacingSizingTest extends TestCase
     public function theFamilyImplementsTheContractAndOwnsTheSpaceHandlers(): void
     {
         self::assertInstanceOf(FamilyHandlerInterface::class, new SpacingSizing(new ValueResolver()));
-        self::assertSame(['space', 'spaceReverse'], SpacingSizing::names());
+        self::assertSame(['space', 'spaceReverse', 'size'], SpacingSizing::names());
         self::assertArrayHasKey('space', Handlers::TAKES_VALUE);
         self::assertArrayHasKey('spaceReverse', Handlers::TAKES_VALUE);
         self::assertNotContains('space', (new Handlers(new ValueResolver()))->unimplemented());
         self::assertNotContains('spaceReverse', (new Handlers(new ValueResolver()))->unimplemented());
+        self::assertNotContains('size', (new Handlers(new ValueResolver()))->unimplemented());
     }
 
     /**
@@ -225,6 +227,64 @@ final class SpacingSizingTest extends TestCase
         self::assertSame([], self::compiledUsed('space-x-px'));
         self::assertSame([], self::compiledUsed('space-y-[3px]'));
         self::assertSame([], self::compiledUsed('space-x-reverse'));
+    }
+
+    /**
+     * `max-w-screen-<breakpoint>` (TASK-0042) reads the theme breakpoint and
+     * reports it; the other values of `max-w` are not the `size` handler's.
+     *
+     * @test
+     */
+    public function aScreenBreakpointIsReportedAndNothingElseIsTaken(): void
+    {
+        $theme = self::theme();
+        $compiled = self::compiled('max-w-screen-md', $theme);
+
+        self::assertNotNull($compiled);
+        self::assertSame(['--breakpoint-md'], $compiled->usedVars);
+        self::assertSame([], $compiled->properties);
+        self::assertSame('max-width:var(--breakpoint-md)', self::css('max-w-screen-md'));
+        self::assertSame('max-width:var(--breakpoint-md)!important', self::css('max-w-screen-md!'));
+        self::assertSame([], $theme->usedVars(), 'nothing was marked');
+
+        // Other values reach the next sub-definition, which reports its own variables.
+        self::assertSame(['--container-sm'], self::compiledUsed('max-w-sm'));
+        self::assertSame(['--spacing'], self::compiledUsed('max-w-4'));
+        self::assertSame([], self::compiledUsed('max-w-screen'));
+
+        // A modifier, a fraction or a negative is not a breakpoint name. Known difference: the pinned CLI
+        // accepts `max-w-screen-md/50`, drops the modifier and writes the same rule (with the theme variable
+        // `--breakpoint-md`); the engine refuses it. The line is not in the corpus because the whole-engine
+        // golden would then miss that theme variable, so the fact is pinned here instead.
+        self::assertNull(self::css('max-w-screen-md/50'));
+        self::assertNull(self::css('-max-w-screen-md'));
+    }
+
+    /**
+     * A crafted candidate cannot make the `size` handler write anything but a
+     * theme breakpoint: a static one, a fraction or an arbitrary value gives nothing.
+     *
+     * @test
+     */
+    public function theSizeHandlerOnlyAnswersAThemeBreakpoint(): void
+    {
+        $compiler = new Compiler(Registry::default());
+        $theme = self::theme();
+        $static = new Candidate('a', [], false, false, Candidate::STATIC, 'max-w', null);
+        $half = new NamedValue('screen-1/2', true);
+        $fraction = new Candidate('b', [], false, false, Candidate::FUNCTIONAL, 'max-w', $half);
+        $short = new Candidate('c', [], false, false, Candidate::FUNCTIONAL, 'max-w', new NamedValue('screen-'));
+
+        self::assertNull($compiler->compile($static, $theme));
+        self::assertNull($compiler->compile($fraction, $theme));
+        self::assertNull($compiler->compile($short, $theme));
+
+        // Even where the bare `--breakpoint` variable exists, `screen-` with no name reads nothing.
+        $bare = self::theme();
+        $bare->merge(['--breakpoint' => '5px'], new ThemeFlags(false, false, false, false));
+        // (a compiler keeps its first answer per utility part: the other theme needs its own instance)
+        self::assertNull((new Compiler(Registry::default()))->compile($short, $bare));
+        self::assertNull(self::compiled('max-w-screen-', $bare));
     }
 
     /**

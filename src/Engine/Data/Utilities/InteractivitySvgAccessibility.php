@@ -111,9 +111,8 @@ final class InteractivitySvgAccessibility
             'touch-manipulation' => ['static' => ['touch-action' => 'manipulation']],
             'fill' => [
                 'variants' => [
-                    self::paint('fill'),
+                    self::paint('fill', true),
                     ['props' => ['fill'], 'named' => ['none' => 'none']],
-                    self::anyPaint('fill'),
                 ],
             ],
             'stroke' => [
@@ -190,18 +189,20 @@ final class InteractivitySvgAccessibility
     }
 
     /**
-     * The first sub-definition of `fill` and `stroke`: a theme colour with an opacity, an arbitrary colour. It
-     * comes first so that a variable with no type hint is the colour, as in the CLI.
+     * The first sub-definition of `fill` and `stroke`: a theme colour with an opacity, and an arbitrary value. It
+     * comes first so that a variable with no type hint is the paint, as in the CLI. For `fill` every arbitrary
+     * value is a paint (`$anyValue`); for `stroke` only a colour is, the rest goes on to the width and then to
+     * {@see self::anyPaint()}, so a length stays the width.
      *
      * @return array<string, mixed>
      */
-    private static function paint(string $property): array
+    private static function paint(string $property, bool $anyValue = false): array
     {
         return [
             'props' => [$property],
             'theme' => ['color'],
             'modifier' => 'opacity',
-            'arbitrary' => ['color'],
+            'arbitrary' => $anyValue ? true : ['color'],
         ];
     }
 

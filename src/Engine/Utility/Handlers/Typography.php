@@ -99,11 +99,8 @@ final class Typography implements FamilyHandlerInterface
         $used = [];
 
         if ($value instanceof NamedValue) {
-            $themed = null;
-
-            if (!$value->fraction && !self::isOtherNamespace($value->name)) {
-                $themed = $theme->resolve('text', $value->name);
-            }
+            // A namespace of its own (`--text-shadow-*`) is kept out by the registry, as the CLI does.
+            $themed = $value->fraction ? null : $theme->resolve('text', $value->name);
 
             if ($themed === null) {
                 return null;
@@ -232,15 +229,6 @@ final class Typography implements FamilyHandlerInterface
             new Declaration('-webkit-box-orient', $orient),
             new Declaration('-webkit-line-clamp', $lines),
         ];
-    }
-
-    /**
-     * Whether `--text-<name>` belongs to a namespace of its own (`--text-shadow-*`: the CLI never reads it
-     * as a size, v4's `ignoredThemeKeyMap`).
-     */
-    private static function isOtherNamespace(string $name): bool
-    {
-        return $name === 'shadow' || \strncmp($name, 'shadow-', 7) === 0;
     }
 
     /**

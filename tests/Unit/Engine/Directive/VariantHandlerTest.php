@@ -38,6 +38,33 @@ final class VariantHandlerTest extends TestCase
     }
 
     /** @test */
+    public function aStartingStyleVariantIsRegistered(): void
+    {
+        $run = new ProcessorHarness('@custom-variant starting (@starting-style);');
+        $definition = $run->variants->get('starting');
+
+        self::assertSame([], $run->codes());
+        self::assertNotNull($definition);
+        self::assertTrue($definition->startingStyle());
+        self::assertSame([], $definition->selectors());
+        self::assertNull($definition->media());
+        self::assertSame('', $run->authored());
+    }
+
+    /**
+     * `@starting-style` takes no query, the other at-rules need one.
+     *
+     * @test
+     */
+    public function aStartingStyleWithAQueryIsRefused(): void
+    {
+        $run = new ProcessorHarness('@custom-variant x (@starting-style (width > 1px));');
+
+        self::assertSame([Diagnostic::E_CSS_SYNTAX], $run->codes());
+        self::assertSame([], $run->sheet->customVariants);
+    }
+
+    /** @test */
     public function severalSelectorsAreKept(): void
     {
         $run = new ProcessorHarness('@custom-variant hocus (&:hover, &:focus);');

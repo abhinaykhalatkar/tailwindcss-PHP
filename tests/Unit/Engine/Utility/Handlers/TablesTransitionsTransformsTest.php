@@ -286,6 +286,7 @@ final class TablesTransitionsTransformsTest extends TestCase
             'border-spacing-4' => ['--tw-border-spacing-x', '--tw-border-spacing-y'],
             'border-spacing-x-4' => ['--tw-border-spacing-x', '--tw-border-spacing-y'],
             'transform' => ['--tw-rotate-x', '--tw-rotate-y', '--tw-rotate-z', '--tw-skew-x', '--tw-skew-y'],
+            'transform-cpu' => [],
             'transform-gpu' => [],
             'transform-none' => [],
             'transition' => [],

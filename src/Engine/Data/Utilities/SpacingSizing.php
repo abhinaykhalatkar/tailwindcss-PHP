@@ -66,7 +66,14 @@ final class SpacingSizing
             'space-y-reverse' => ['handler' => 'spaceReverse', 'order' => 'column-gap'],
             'w' => self::size(['width'], self::viewport('100vw'), true),
             'min-w' => self::size(['min-width'], self::viewport('100vw'), true),
-            'max-w' => self::size(['max-width'], self::maximum(self::viewport('100vw')) + ['prose' => '65ch'], true),
+            // `max-w-screen-<breakpoint>` first (the `size` handler: a theme breakpoint behind a prefix),
+            // then the rest.
+            'max-w' => [
+                'variants' => [
+                    ['handler' => 'size', 'props' => ['max-width']],
+                    self::size(['max-width'], self::maximum(self::viewport('100vw')) + ['prose' => '65ch'], true),
+                ],
+            ],
             'h' => self::size(['height'], self::viewport('100vh') + ['lh' => '1lh'], false),
             'min-h' => self::size(['min-height'], self::viewport('100vh') + ['lh' => '1lh'], false),
             'max-h' => self::size(['max-height'], self::maximum(self::viewport('100vh')) + ['lh' => '1lh'], false),

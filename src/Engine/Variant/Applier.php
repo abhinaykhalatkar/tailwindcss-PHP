@@ -169,6 +169,7 @@ final class Applier
             $definition->media(),
             $definition->supports(),
             $definition->container(),
+            $definition->startingStyle(),
             $definition->inject(),
             $definition->order()
         );
@@ -210,6 +211,7 @@ final class Applier
             $fill($row->media()),
             $fill($row->supports()),
             $fill($row->container()),
+            $row->startingStyle(),
             $row->inject(),
             $row->order()
         );
@@ -290,8 +292,8 @@ final class Applier
     }
 
     /**
-     * Wrap `$current`: inject first, then the at-rules innermost to outermost,
-     * then one rule per selector.
+     * Wrap `$current`: inject first, then the at-rules innermost to outermost
+     * (`@starting-style` last of them), then one rule per selector.
      *
      * @param list<Node> $current
      * @param list<string> $selectors
@@ -305,6 +307,7 @@ final class Applier
         ?string $media,
         ?string $supports,
         ?string $container,
+        bool $startingStyle,
         array $inject,
         int $order
     ): array {
@@ -329,6 +332,11 @@ final class Applier
             if ($params !== null) {
                 $inner = [new AtRule($name, $params, $inner)];
             }
+        }
+
+        // `@starting-style` has no query; it sits at the same place in the nesting as the at-rules above.
+        if ($startingStyle) {
+            $inner = [new AtRule('starting-style', '', $inner)];
         }
 
         if ($selectors === []) {

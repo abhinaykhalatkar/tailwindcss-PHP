@@ -1,0 +1,15 @@
+# Candidates where the pinned CLI does something a data table cannot say: it accepts a modifier and drops it, reads a type hint the classifier lacks, or refuses a typed value with an opacity. The ones the engine reads differently are listed in known-differences.php.
+
+# a modifier the CLI accepts and ignores
+stroke-1/2
+stroke-2/50
+
+# a type hint the classifier does not know
+bg-[size:10px]
+
+# typed values with an opacity: nothing in the CLI, nothing in the engine
+bg-[url(x.png)]/50
+bg-[10px]/50
+bg-[length:10px]/50
+bg-[image:url(x)]/50
+bg-[position:10px]/50

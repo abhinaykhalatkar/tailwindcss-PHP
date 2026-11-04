@@ -567,6 +567,24 @@ final class ThemeRegistryTest extends TestCase
     }
 
     /**
+     * The `--theme(…, initial)` form exists only for the two names the default
+     * theme seeds (TASK-0042): a default-block variable of any other name that
+     * reads an undefined variable is emitted as written.
+     *
+     * @test
+     */
+    public function onlyTheTwoSeededDefaultsAreUnsetWhenTheirSourceIsGone(): void
+    {
+        $registry = new ThemeRegistry();
+        $flags = new ThemeFlags(false, false, false, true);
+        $registry->merge(['--zz' => 'var(--nope)', '--default-font-family' => 'var(--nope)'], $flags);
+        $registry->markUsed('--zz');
+        $registry->markUsed('--default-font-family');
+
+        self::assertSame(['--zz' => 'var(--nope)'], $registry->emittable());
+    }
+
+    /**
      * Only a value that is exactly one `var(--x)`: a fallback or more text
      * keeps a default variable, as the CLI prints those whatever is defined.
      *

@@ -36,12 +36,12 @@ final class CorpusCoverageTest extends TestCase
         'typography' => 516,
         'backgrounds-borders' => 937,
         'effects-filters' => 117,
-        'tables-transitions-transforms' => 339,
+        'tables-transitions-transforms' => 347,
         'interactivity-svg-accessibility' => 660,
         'arbitrary-property' => 10,
     ];
 
-    private const TOTAL = 4432;
+    private const TOTAL = 4440;
 
     private const VARIANT_PREFIXES = ['md:', 'hover:', 'md:hover:', 'dark:', 'group-hover:', '[&>*]:'];
 
@@ -134,7 +134,7 @@ final class CorpusCoverageTest extends TestCase
             );
         }
 
-        self::assertSame(7, $edge);
+        self::assertSame(8, $edge);
     }
 
     /** @test */

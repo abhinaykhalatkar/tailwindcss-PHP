@@ -75,7 +75,8 @@ final class ProcessorOptions
     /**
      * @param int $entryBytes `strlen()` of the entry CSS (required: the byte budget must count it).
      *
-     * @throws \InvalidArgumentException When a limit is negative or zero.
+     * @throws \InvalidArgumentException When a limit is negative, or the total byte budget is zero (the
+     *                                   other limits may be zero: no import, no depth, no inline candidate).
      */
     public function __construct(
         string $entryPath,
