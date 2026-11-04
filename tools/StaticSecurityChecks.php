@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace TailwindPhp\Tools;
 
 /**
- * The six static security rules of design doc 16 §Security suite, in one place.
+ * The seven static security rules of design doc 16 §Security suite, in one place.
  *
  * Two front ends share this engine — `tests/Security/StaticChecksTest.php` so
  * the rules run on every developer machine, and `tools/static-security-checks.php`
@@ -57,6 +57,14 @@ final class StaticSecurityChecks
      * ADR-014: artefacts hold project-relative paths only.
      */
     public const RULE_MANIFEST_PATH = 'no-absolute-paths-in-fixture-manifests';
+
+    /**
+     * Decision ENG-A8 (design doc 23 §M2): the engine is a pure function of its
+     * inputs, so it makes no filesystem, clock, random or environment call.
+     * That is what lets goldens stay byte-stable and the cache fingerprint
+     * stand in for "same inputs".
+     */
+    public const RULE_ENGINE_PURITY = 'no-filesystem-time-random-in-engine';
 
     /**
      * Files allowed to call PCRE, relative to the scanned root.
@@ -113,6 +121,41 @@ final class StaticSecurityChecks
     private const NETWORK_ALLOWED = ['Console/Command/InstallCliCommand.php'];
 
     /**
+     * Where rule R7 applies, relative to the scanned root.
+     */
+    private const ENGINE_PREFIX = 'Engine/';
+
+    /**
+     * The engine's one sanctioned reader (ENG-A8): resolving an `@import` has
+     * to read a file, and it does so through a confined, injectable resolver.
+     * Kept as a list so a later task can add an entry — but only with an ADR
+     * naming why that file may touch the world.
+     *
+     * @var list<string>
+     */
+    private const ENGINE_PURITY_EXEMPT = ['Engine/Import/FilesystemImportResolver.php'];
+
+    /**
+     * Global functions that read or write the filesystem, the clock, a random
+     * source or the process environment (rule R7).
+     *
+     * @var list<string>
+     */
+    private const ENGINE_FORBIDDEN_CALLS = [
+        // Filesystem.
+        'file_get_contents', 'file_put_contents', 'file_exists', 'file', 'fopen', 'fread', 'fwrite', 'fclose',
+        'readfile', 'is_file', 'is_dir', 'is_readable', 'is_writable', 'is_link', 'stat', 'lstat', 'filemtime',
+        'filesize', 'realpath', 'mkdir', 'rmdir', 'unlink', 'rename', 'copy', 'tempnam', 'tmpfile', 'opendir',
+        'readdir', 'scandir', 'glob', 'chmod', 'touch', 'flock',
+        // Clock.
+        'time', 'microtime', 'hrtime', 'date', 'gmdate', 'mktime', 'strtotime',
+        // Randomness.
+        'rand', 'mt_rand', 'random_int', 'random_bytes', 'uniqid', 'lcg_value', 'shuffle', 'array_rand',
+        // Process state and blocking.
+        'getenv', 'putenv', 'sleep', 'usleep',
+    ];
+
+    /**
      * @var int
      */
     private $scannedFiles = 0;
@@ -131,6 +174,7 @@ final class StaticSecurityChecks
             self::RULE_NETWORK,
             self::RULE_CATCH,
             self::RULE_MANIFEST_PATH,
+            self::RULE_ENGINE_PURITY,
         ];
     }
 
@@ -240,6 +284,14 @@ final class StaticSecurityChecks
                 $violations[] = self::violation(self::RULE_NETWORK, $relative, $line, $text);
             }
 
+            if (
+                $call !== null && \in_array($call, self::ENGINE_FORBIDDEN_CALLS, true)
+                && self::isEngineFile($relative) && !self::isAllowed($relative, self::ENGINE_PURITY_EXEMPT)
+                && self::isGlobalFunctionCall($tokens, $i)
+            ) {
+                $violations[] = self::violation(self::RULE_ENGINE_PURITY, $relative, $line, $call . '()');
+            }
+
             if ($id === \T_CATCH) {
                 foreach (self::unresolvedCatchTypes($tokens, $i, $imports) as $type) {
                     $violations[] = self::violation(
@@ -298,6 +350,91 @@ final class StaticSecurityChecks
         $name = \ltrim($text, '\\');
 
         return \strpos($name, '\\') === false ? $name : null;
+    }
+
+    private static function isEngineFile(string $relative): bool
+    {
+        return \strncmp($relative, self::ENGINE_PREFIX, \strlen(self::ENGINE_PREFIX)) === 0;
+    }
+
+    /**
+     * Whether the name token at `$index` is a call to a global function.
+     *
+     * A name is only a call when `(` follows it, and it is only the *global*
+     * function when nothing before it makes it a member or a declaration: not
+     * `$x->file(`, not `Foo::file(`, not `function file(`, not `new file(`.
+     * Rules R1–R6 get by without this because their names (`preg_*`, `curl_*`,
+     * `getenv`) are never also method names; R7 lists words like `file`, `copy`
+     * and `time` that very plausibly are.
+     *
+     * @param array<int, array{0: int, 1: string, 2: int}|string> $tokens
+     */
+    private static function isGlobalFunctionCall(array $tokens, int $index): bool
+    {
+        if (self::significantToken($tokens, self::significantIndex($tokens, $index, 1)) !== '(') {
+            return false;
+        }
+
+        $previousIndex = self::significantIndex($tokens, $index, -1);
+        $previous = self::significantToken($tokens, $previousIndex);
+
+        // `function &file(` is a by-reference declaration; look past the `&`.
+        if ($previous === '&') {
+            $previous = self::significantToken($tokens, self::significantIndex($tokens, $previousIndex, -1));
+        }
+
+        if (!\is_array($previous)) {
+            return true;
+        }
+
+        $blocking = [\T_OBJECT_OPERATOR, \T_DOUBLE_COLON, \T_FUNCTION, \T_NEW];
+
+        // The nullsafe operator does not exist on the 7.3 floor.
+        if (\defined('T_NULLSAFE_OBJECT_OPERATOR')) {
+            $nullsafe = \constant('T_NULLSAFE_OBJECT_OPERATOR');
+
+            if (\is_int($nullsafe)) {
+                $blocking[] = $nullsafe;
+            }
+        }
+
+        return !\in_array($previous[0], $blocking, true);
+    }
+
+    /**
+     * @param array<int, array{0: int, 1: string, 2: int}|string> $tokens
+     *
+     * @return array{0: int, 1: string, 2: int}|string|null
+     */
+    private static function significantToken(array $tokens, ?int $index)
+    {
+        return $index === null ? null : $tokens[$index];
+    }
+
+    /**
+     * Index of the nearest token in `$direction` (1 or -1) that is neither
+     * whitespace nor a comment, or null when there is none.
+     *
+     * @param array<int, array{0: int, 1: string, 2: int}|string> $tokens
+     */
+    private static function significantIndex(array $tokens, ?int $index, int $direction): ?int
+    {
+        if ($index === null) {
+            return null;
+        }
+
+        $skipped = [\T_WHITESPACE, \T_COMMENT, \T_DOC_COMMENT];
+        $count = \count($tokens);
+
+        for ($i = $index + $direction; $i >= 0 && $i < $count; $i += $direction) {
+            $token = $tokens[$i];
+
+            if (!\is_array($token) || !\in_array($token[0], $skipped, true)) {
+                return $i;
+            }
+        }
+
+        return null;
     }
 
     /**
