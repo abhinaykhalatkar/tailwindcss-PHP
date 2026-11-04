@@ -301,7 +301,9 @@ final class StandaloneCliCompiler implements CompilerInterface
             // (the preamble only names `candidates.txt`), so it is removed
             // and reported rather than honoured (CCP-A30).
             $body = $this->stripSourceDirectives($body, $notices);
-            $input = self::SOURCE_PREAMBLE . $this->inlineImports($body, $imports, '', 0, $inlined, $notices);
+            // Relative imports resolve against the entry's directory (ADR-014).
+            $entryRel = $options->entryRelPath();
+            $input = self::SOURCE_PREAMBLE . $this->inlineImports($body, $imports, $entryRel, 0, $inlined, $notices);
 
             // Candidates go to disk on **one space-separated line** (CCP-A10),
             // never into argv: the argument vector stays a fixed shape whatever

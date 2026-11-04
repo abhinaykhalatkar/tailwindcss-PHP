@@ -7,22 +7,27 @@ namespace TailwindPhp\Tests\Unit\Compiler;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use TailwindPhp\Compiler\CompileOptions;
+use TailwindPhp\Compiler\CompileResult;
 use TailwindPhp\Compiler\CompilerInterface;
 use TailwindPhp\Compiler\PhpEngineCompiler;
+use TailwindPhp\Engine\Css\Parser;
+use TailwindPhp\Engine\Diagnostic\Diagnostic;
+use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
+use TailwindPhp\Engine\Version;
 use TailwindPhp\Tests\Support\InMemoryImportResolver;
 
 /**
- * The M1 stub engine (design doc 23 §M1, digest §2.5).
+ * The real PHP engine behind the driver contract (TASK-0034 criterion 6;
+ * design doc 06): it identifies as `php` at the engine's compatibility
+ * version, produces the stylesheet for the candidates, reports input problems
+ * as diagnostics, reads imports only through the resolver it is given and
+ * reports what it resolved, and is deterministic, so a content hash is stable
+ * and "nothing changed ⇒ no rebuild" holds.
  *
- * The stub exists so the pipeline, the cache and the lifecycle matrix can be
- * built and tested before the real engine lands in M2 — and so the restricted
- * CI job, which has no `proc_open` and no binary, exercises a real code path
- * rather than a skipped one.
- *
- * Two properties make it usable for that, and both are asserted here rather
- * than assumed: it is **deterministic**, so a content hash is stable and
- * "nothing changed ⇒ no rebuild" is testable; and it performs **no I/O**, so a
- * freshness test cannot flap for reasons unrelated to freshness.
+ * The M1 stub's placeholder assertions (`stub-m1`, the `--tw-stub-candidates`
+ * property, "never consults the resolver") are replaced by the engine's real
+ * behaviour; the candidate-escaping rows keep their intent: a hostile
+ * candidate never breaks out of the stylesheet.
  */
 final class PhpEngineCompilerTest extends TestCase
 {
@@ -36,173 +41,204 @@ final class PhpEngineCompilerTest extends TestCase
     }
 
     /** @test */
-    public function itIdentifiesAsThePhpDriver(): void
+    public function itIdentifiesAsThePhpDriverAtTheEngineCompatVersion(): void
     {
         $compiler = new PhpEngineCompiler();
 
         self::assertSame('php', $compiler->name());
-        self::assertSame('stub-m1', $compiler->version());
-        self::assertSame(PhpEngineCompiler::VERSION, $compiler->version());
+        self::assertSame(Version::COMPAT, $compiler->version());
+    }
+
+    /** @test */
+    public function itCompilesTheCandidates(): void
+    {
+        $css = $this->compile(['flex', 'p-4', 'hover:underline'])->css();
+
+        self::assertStringContainsString(".flex {\n    display: flex;", $css);
+        self::assertStringContainsString('padding: calc(var(--spacing) * 4);', $css);
+        self::assertStringContainsString('.hover\:underline:hover', $css);
+        self::assertStringContainsString('@layer theme, base, components, utilities;', $css);
     }
 
     /**
-     * The same input must produce the same bytes, or the content hash moves on
-     * every build and nothing downstream can be cached.
-     *
      * @test
      */
     public function theSameInputProducesTheSameBytes(): void
     {
         $first = $this->compile(['flex', 'p-4']);
         $second = $this->compile(['flex', 'p-4']);
+        $other = (new PhpEngineCompiler())->compile(
+            '@import "tailwindcss";',
+            new InMemoryImportResolver([]),
+            ['flex', 'p-4'],
+            new CompileOptions(false, false)
+        );
 
         self::assertSame($first->css(), $second->css());
-        self::assertNotSame('', $first->css(), 'An empty stylesheet would make the cache untestable.');
-    }
-
-    /**
-     * Candidates must be visible in the output, so a lifecycle test can watch
-     * them travel from the scanner through the pipeline into the artefact.
-     *
-     * @test
-     */
-    public function everyCandidateAppearsInTheOutput(): void
-    {
-        $css = $this->compile(['flex', 'p-4', 'text-sm'])->css();
-
-        // As quoted string *values*, not as selectors — the next test is why
-        // that distinction matters.
-        self::assertStringContainsString('"flex"', $css);
-        self::assertStringContainsString('"p-4"', $css);
-        self::assertStringContainsString('"text-sm"', $css);
-    }
-
-    /**
-     * A candidate cannot break out of the value it is written into.
-     *
-     * This compiler is what every host without `proc_open` runs, so its output
-     * is real served CSS, and candidates come from scanning the project's
-     * templates rather than from a test. Interpolating one into a selector let a
-     * candidate containing `{` or `}` close the rule and inject arbitrary CSS
-     * into a stylesheet the browser then executes.
-     *
-     * @test
-     */
-    public function acandidateCannotEscapeIntoTheStylesheet(): void
-    {
-        $css = $this->compile(['a{}body{display:none}', 'b"c', 'd\\e'])->css();
-
-        // The exact bytes, because the whole property is about *where* the
-        // candidate's characters end up rather than whether they appear.
-        //
-        // Note what this does and does not claim. `{` and `}` are still present
-        // — inside a CSS string literal they are inert text, and stripping them
-        // would be theatre. What must never happen is a candidate *terminating*
-        // its string, because everything after that point would be parsed as
-        // syntax. So the quote is escaped to `\"` and the backslash to `\\`,
-        // and the braces are left exactly where a parser will ignore them.
-        self::assertSame(
-            "/* tailwindcss-php stub */\n"
-            . ':root{--tw-stub-candidates:"a{}body{display:none}" "b\\"c" "d\\\\e"}' . "\n",
-            $css
-        );
-    }
-
-    /**
-     * The escaping above is load-bearing, not incidental: an unescaped quote
-     * would close the string and hand the rest of the candidate to the parser as
-     * CSS. Asserted structurally so it fails if the emitted shape changes.
-     *
-     * @test
-     */
-    public function aquoteInAcandidateCannotCloseTheString(): void
-    {
-        $css = $this->compile(['x"; } body { display:none; } .y{'])->css();
-
-        // Every `"` is either one of the two delimiters or backslash-escaped, so
-        // removing the escaped ones must leave exactly the opening and closing
-        // delimiter.
-        self::assertSame(
-            2,
-            \substr_count(\str_replace('\\"', '', $css), '"'),
-            'A candidate introduced an unescaped quote, which closes the string early.'
-        );
+        self::assertSame($first->css(), $other->css(), 'a second instance gives the same bytes');
     }
 
     /** @test */
-    public function adifferentCandidateSetProducesDifferentBytes(): void
+    public function aDifferentCandidateSetProducesDifferentBytes(): void
     {
-        self::assertNotSame(
-            $this->compile(['flex'])->css(),
-            $this->compile(['flex', 'p-4'])->css()
-        );
+        self::assertNotSame($this->compile(['flex'])->css(), $this->compile(['flex', 'p-4'])->css());
     }
 
-    /**
-     * `minify` is part of the config hash, so its effect has to be observable
-     * or a test cannot tell that flipping it invalidated the cache.
-     *
-     * @test
-     */
-    public function minifyChangesTheOutput(): void
+    /** @test */
+    public function minifyWritesTheCompactForm(): void
     {
-        $plain = $this->compile(['flex'], false)->css();
+        $plain = $this->compile(['flex'])->css();
         $minified = $this->compile(['flex'], true)->css();
 
         self::assertNotSame($plain, $minified);
-        self::assertStringNotContainsString("\n", $minified);
-    }
-
-    /** @test */
-    public function theResultCarriesTheDriverIdentityAndNoDiagnostics(): void
-    {
-        $result = $this->compile(['flex']);
-
-        self::assertSame('php', $result->driver());
-        self::assertSame('stub-m1', $result->driverVersion());
-        self::assertFalse($result->hasErrors());
-        self::assertTrue($result->diagnostics()->isEmpty());
-        self::assertSame([], $result->imports());
-        self::assertSame([], $result->inlineSources());
-        self::assertGreaterThanOrEqual(0.0, $result->durationMs());
-    }
-
-    /** @test */
-    public function anEmptyCandidateSetStillProducesNonEmptyCss(): void
-    {
-        $css = $this->compile([])->css();
-
-        self::assertNotSame('', $css);
+        self::assertStringContainsString('.flex{display:flex}', $minified);
+        self::assertLessThan(\strlen($plain), \strlen($minified));
     }
 
     /**
-     * No filesystem, no clock, no randomness beyond the duration timer.
-     *
-     * Asserted by handing it a resolver that records every call: the stub must
-     * not consult imports at all, which is the observable half of "does no
-     * I/O". The determinism tests above cover the rest — a clock or a random
-     * source would show up there as differing bytes.
+     * Candidates are scanned from templates, so they may hold anything. None of
+     * these is a utility; none reaches the stylesheet, and the output parses
+     * without a diagnostic.
      *
      * @test
      */
-    public function itNeverConsultsTheImportResolver(): void
+    public function aHostileCandidateCannotEscapeIntoTheStylesheet(): void
     {
-        $resolver = new InMemoryImportResolver(['a.css' => '.a{}']);
+        $hostile = [
+            'x}body{background:red}',
+            '"><script>alert(1)</script>',
+            'bg-[url(javascript:alert(1))]',
+            'p-[1px;color:red]',
+            '[color:red}body{x:y]',
+            'a"b',
+        ];
+        $result = $this->compile($hostile);
+        $bag = new DiagnosticBag();
 
-        (new PhpEngineCompiler())->compile(
-            '@import "./a.css";',
-            $resolver,
+        Parser::parse($result->css(), $bag);
+
+        self::assertSame([], $bag->toArray(), 'the output re-parses clean');
+        self::assertSame($this->compile([])->css(), $result->css(), 'no candidate added anything');
+        self::assertStringNotContainsString('script', $result->css());
+        self::assertStringNotContainsString('javascript', $result->css());
+    }
+
+    /** @test */
+    public function theResultCarriesTheDriverIdentityAndTheInlineSources(): void
+    {
+        $result = (new PhpEngineCompiler())->compile(
+            "@import \"tailwindcss\";\n@source inline(\"underline\");",
+            new InMemoryImportResolver([]),
             ['flex'],
             new CompileOptions(false, false)
         );
 
-        self::assertSame([], $resolver->resolved(), 'The stub resolved an import it should have ignored.');
+        self::assertSame('php', $result->driver());
+        self::assertSame(Version::COMPAT, $result->driverVersion());
+        self::assertFalse($result->hasErrors());
+        self::assertSame([], $result->imports());
+        self::assertSame(['underline'], $result->inlineSources());
+        self::assertGreaterThanOrEqual(0.0, $result->durationMs());
+        self::assertStringContainsString('text-decoration-line: underline;', $result->css());
+    }
+
+    /**
+     * Imports are read through the resolver only, and the result names what it
+     * resolved (project-relative, for the freshness snapshot).
+     *
+     * @test
+     */
+    public function importsGoThroughTheResolverAndAreReported(): void
+    {
+        $resolver = new InMemoryImportResolver(['a.css' => '.a{color:red}']);
+        $result = (new PhpEngineCompiler())->compile(
+            '@import "./a.css";',
+            $resolver,
+            [],
+            new CompileOptions(false, false)
+        );
+
+        self::assertSame(['./a.css'], $resolver->resolved(), 'the specifier as written');
+        self::assertSame(['a.css'], $result->imports());
+        self::assertStringContainsString('.a {', $result->css());
+    }
+
+    /** @test */
+    public function anInputProblemIsADiagnosticNotAnException(): void
+    {
+        $result = (new PhpEngineCompiler())->compile(
+            '@import "tailwindcss"; @plugin "x"; .a { @apply not-a-utility; }',
+            new InMemoryImportResolver([]),
+            [],
+            new CompileOptions(false, false)
+        );
+        $codes = [];
+
+        foreach ($result->diagnostics()->all() as $diagnostic) {
+            $codes[] = $diagnostic->code();
+        }
+
+        self::assertTrue($result->hasErrors());
+        self::assertSame([Diagnostic::E_UNSUPPORTED_DIRECTIVE, Diagnostic::E_APPLY_UNKNOWN], $codes);
+    }
+
+    /**
+     * Fail soft (M1 contract): whatever the engine or a resolver throws comes
+     * back as one `E_BUILD_FAILED` naming the class only — never the message,
+     * which may carry a path — and no CSS.
+     *
+     * @test
+     */
+    public function anExceptionInsideTheEngineIsOneBuildError(): void
+    {
+        $resolver = new class () implements \TailwindPhp\Engine\Import\ImportResolverInterface {
+            public function resolve(string $spec, string $fromRelPath): ?\TailwindPhp\Engine\Import\ResolvedImport
+            {
+                throw new \RuntimeException('/secret/absolute/path/' . $spec);
+            }
+        };
+        $options = new CompileOptions(false, false);
+        $result = (new PhpEngineCompiler())->compile('@import "./a.css";', $resolver, [], $options);
+        $diagnostics = $result->diagnostics()->all();
+
+        self::assertSame('', $result->css());
+        self::assertTrue($result->hasErrors());
+        self::assertCount(1, $diagnostics);
+        self::assertSame(Diagnostic::E_BUILD_FAILED, $diagnostics[0]->code());
+        self::assertStringContainsString('RuntimeException', $diagnostics[0]->message());
+        self::assertStringNotContainsString('secret', $diagnostics[0]->message());
+        self::assertSame('php', $result->driver());
+    }
+
+    /**
+     * T-06 (round 3): an anonymous class's name carries a NUL byte and the
+     * absolute path of its file; the diagnostic names its first named parent.
+     *
+     * @test
+     */
+    public function anAnonymousExceptionIsNamedWithoutItsPath(): void
+    {
+        $resolver = new class () implements \TailwindPhp\Engine\Import\ImportResolverInterface {
+            public function resolve(string $spec, string $fromRelPath): ?\TailwindPhp\Engine\Import\ResolvedImport
+            {
+                throw new class ('x') extends \RuntimeException {
+                };
+            }
+        };
+        $options = new CompileOptions(false, false);
+        $result = (new PhpEngineCompiler())->compile('@import "./a.css";', $resolver, [], $options);
+        $message = $result->diagnostics()->all()[0]->message();
+
+        self::assertSame('The PHP engine stopped with RuntimeException.', $message);
+        self::assertStringNotContainsString("\0", $message);
+        self::assertStringNotContainsString('@anonymous', $message);
+        self::assertStringNotContainsString(__FILE__, $message);
     }
 
     /**
      * @param list<string> $candidates
      */
-    private function compile(array $candidates, bool $minify = false): \TailwindPhp\Compiler\CompileResult
+    private function compile(array $candidates, bool $minify = false): CompileResult
     {
         return (new PhpEngineCompiler())->compile(
             '@import "tailwindcss";',

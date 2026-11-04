@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TailwindPhp\Engine\Css;
 
 use TailwindPhp\Engine\Css\Node\AtRule;
+use TailwindPhp\Engine\Css\Node\Comment;
 use TailwindPhp\Engine\Css\Node\Declaration;
 use TailwindPhp\Engine\Css\Node\Node;
 use TailwindPhp\Engine\Css\Node\Rule;
@@ -63,9 +64,12 @@ use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
  * megabytes, up to the budget). A nested rule resolved against its parent
  * also costs {@see self::PART_CHARGE} bytes per part, so the parts resolved
  * stay proportional to what is charged even when they are one byte each; a
- * top-level rule and an emitted chunk cost their bytes only.
- * Past the first two bounds a subtree is dropped; past the budget the walk
- * stops altogether. Each case is one `E_CSS_SYNTAX` diagnostic, capped like
+ * top-level rule and an emitted chunk cost their bytes only. A fourth bound
+ * counts the nodes written (rules, at-rules and declarations, as the parser
+ * counts them): past {@see Parser::MAX_NODES} the walk stops too, so the
+ * output always re-parses.
+ * Past the first two bounds a subtree is dropped; past the byte or the node
+ * budget the walk stops altogether. Each case is one `E_CSS_SYNTAX` diagnostic, capped like
  * the parser's — except the budget stop, which is always reported. The input
  * tree is never modified.
  *
@@ -126,7 +130,13 @@ final class Nesting
     private $budget = self::MAX_OUTPUT_BYTES;
 
     /**
-     * @var bool True once the budget ran out.
+     * @var int Nodes left of {@see Parser::MAX_NODES} (rules, at-rules and
+     *          declarations, as the parser counts them).
+     */
+    private $nodesLeft = Parser::MAX_NODES;
+
+    /**
+     * @var bool True once a budget ran out (bytes or nodes).
      */
     private $stopped = false;
 
@@ -226,6 +236,10 @@ final class Nesting
                     return;
                 }
 
+                if (!$this->admit(1, $node->line)) {
+                    return;
+                }
+
                 $conditional = isset(self::CONDITIONAL[\strtolower($node->name)]);
                 $inner = [];
 
@@ -243,7 +257,11 @@ final class Nesting
             }
 
             if ($context === null) {
-                $out[] = $node;
+                $line = $node instanceof Declaration || $node instanceof AtRule ? $node->line : null;
+
+                if ($node instanceof Comment || $this->admit(1, $line)) {
+                    $out[] = $node;
+                }
             } else {
                 $chunk[] = $node;
             }
@@ -266,14 +284,61 @@ final class Nesting
             return;
         }
 
+        $line = $origin === null ? null : $origin->line;
+
         // Bytes only: emitting a chunk does no per-part work.
-        if ($this->charge(\strlen($context[0]), $origin === null ? null : $origin->line)) {
+        if ($this->charge(\strlen($context[0]), $line) && $this->admit(1 + self::countable($chunk), $line)) {
             $out[] = $origin === null
                 ? new Rule($context[0], $chunk)
                 : new Rule($context[0], $chunk, $origin->line, $origin->col);
         }
 
         $chunk = [];
+    }
+
+    /**
+     * Take $count nodes from the node budget; false (once reported) when it is
+     * spent, after which nothing more is emitted — so the output always fits
+     * the parser's node cap and re-parses (T-05).
+     */
+    private function admit(int $count, ?int $line): bool
+    {
+        if ($this->stopped) {
+            return false;
+        }
+
+        $this->nodesLeft -= $count;
+
+        if ($this->nodesLeft >= 0) {
+            return true;
+        }
+
+        $this->stopped = true;
+        $this->report(
+            \sprintf('Nesting output holds more than %d nodes; the rest is dropped.', Parser::MAX_NODES),
+            $line,
+            true
+        );
+
+        return false;
+    }
+
+    /**
+     * The nodes of a chunk the parser counts (comments are not nodes to it).
+     *
+     * @param list<Node> $nodes
+     */
+    private static function countable(array $nodes): int
+    {
+        $count = 0;
+
+        foreach ($nodes as $node) {
+            if (!$node instanceof Comment) {
+                ++$count;
+            }
+        }
+
+        return $count;
     }
 
     /**

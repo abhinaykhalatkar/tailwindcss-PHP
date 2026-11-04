@@ -559,6 +559,116 @@ final class NestingTest extends TestCase
     }
 
     /**
+     * T-05 (TASK-0034 round 3): the output never holds more nodes than the
+     * parser admits. A tree no stylesheet text could hold (built as nodes:
+     * 60 000 nested rules, 120 000 nodes once flattened) stops at the cap with
+     * one diagnostic, the tail dropped, and what is written re-parses.
+     *
+     * @test
+     */
+    public function theOutputStopsAtTheParsersNodeCap(): void
+    {
+        $flat = self::flattenWithBag(new StyleSheet([self::manyNestedRules(60000)]), $bag);
+
+        self::assertCount(1, $bag);
+        self::assertStringContainsString('holds more than 100000 nodes', $bag->all()[0]->message());
+        self::assertLessThanOrEqual(Parser::MAX_NODES, self::countNodes($flat->nodes));
+        self::assertGreaterThan(Parser::MAX_NODES - 2, self::countNodes($flat->nodes), 'only the tail is dropped');
+
+        $reparsed = new DiagnosticBag();
+        // Pretty form: the compact one merges equal bodies into one selector
+        // list, which is a separate (serializer) bound.
+        Parser::parse(Serializer::pretty($flat), $reparsed);
+        self::assertSame([], $reparsed->toArray(), 'the output re-parses');
+    }
+
+    /**
+     * The byte cap and the node cap are separate budgets with their own
+     * message; whichever runs out first stops the walk and reports once.
+     *
+     * @test
+     */
+    public function theByteCapAndTheNodeCapEachReportOnce(): void
+    {
+        self::flattenWithBag(new StyleSheet([self::manyNestedRules(60000)]), $nodes);
+        $longSelector = \str_repeat('a', 1000);
+        $wide = [];
+
+        for ($i = 0; $i < 5000; ++$i) {
+            $wide[] = new Rule('.' . $longSelector . $i, [new Declaration('x', 'y')]);
+        }
+
+        self::flattenWithBag(new StyleSheet($wide), $bytes);
+
+        self::assertCount(1, $nodes);
+        self::assertStringContainsString('nodes', $nodes->all()[0]->message());
+        self::assertCount(1, $bytes);
+        self::assertStringContainsString('bytes', $bytes->all()[0]->message());
+    }
+
+    /** @test */
+    public function commentsDoNotCountAsNodes(): void
+    {
+        $nodes = [];
+
+        for ($i = 0; $i < 99990; ++$i) {
+            $nodes[] = new \TailwindPhp\Engine\Css\Node\Comment('c');
+        }
+
+        $nodes[] = new Rule('.a', [new Declaration('x', 'y')]);
+        $flat = self::flattenWithBag(new StyleSheet($nodes), $bag);
+
+        self::assertSame([], $bag->toArray());
+        self::assertCount(99991, $flat->nodes);
+    }
+
+    /**
+     * `.a { & .b0 { x: y } … }` with $count children.
+     */
+    private static function manyNestedRules(int $count): Rule
+    {
+        $children = [];
+
+        for ($i = 0; $i < $count; ++$i) {
+            $children[] = new Rule('& .b' . $i, [new Declaration('x', 'y')]);
+        }
+
+        return new Rule('.a', $children);
+    }
+
+    /**
+     * @param-out DiagnosticBag $bag
+     */
+    private static function flattenWithBag(StyleSheet $sheet, ?DiagnosticBag &$bag = null): StyleSheet
+    {
+        $bag = new DiagnosticBag();
+
+        return Nesting::flatten($sheet, $bag);
+    }
+
+    /**
+     * Rules, at-rules and declarations, as the parser counts them.
+     *
+     * @param list<Node> $nodes
+     */
+    private static function countNodes(array $nodes): int
+    {
+        $count = 0;
+
+        foreach ($nodes as $node) {
+            if ($node instanceof Rule) {
+                $count += 1 + self::countNodes($node->nodes);
+            } elseif ($node instanceof AtRule) {
+                $count += 1 + self::countNodes($node->nodes ?? []);
+            } elseif ($node instanceof Declaration) {
+                ++$count;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
      * No `&` anywhere and no rule inside a rule.
      *
      * @param list<Node> $nodes

@@ -784,6 +784,39 @@ final class LifecycleTest extends TestCase
     }
 
     /**
+     * The same edit under `driver: cli` (TASK-0034): the entry's relative
+     * import is resolved against the entry's own directory and inlined into
+     * what reaches the binary.
+     *
+     * @test
+     */
+    public function anEditedImportedStylesheetCompilesWithTheCliDriver(): void
+    {
+        $binary = $this->installFakeBinary();
+        $overrides = ['driver' => 'cli', 'cli' => ['binary' => $binary]];
+        $this->project()->writeFile('assets/styles/partial.css', ".a { color: red; }\n");
+        $this->project()->writeFile('assets/styles/main.css', "@import \"tailwindcss\";\n@import \"./partial.css\";\n");
+        $this->pipeline($overrides)->resolve('app');
+
+        $this->project()->writeFile('assets/styles/partial.css', ".a { color: blue; }\n");
+
+        $result = $this->pipeline($overrides)->resolve('app');
+
+        self::assertSame('compiled', $result->source());
+
+        $inputs = [];
+
+        foreach ($this->cliRecords() as $name) {
+            $path = $this->project()->root() . '/cache/tailwind/' . $name;
+            $record = \json_decode((string) \file_get_contents($path), true);
+            $inputs[] = \is_array($record) ? (string) ($record['input'] ?? '') : '';
+        }
+
+        self::assertStringContainsString('color: blue', \implode("\n", $inputs), 'the partial was inlined');
+        self::assertStringNotContainsString('@import "./partial.css"', \implode("\n", $inputs));
+    }
+
+    /**
      * @test
      */
     public function aPackageVersionChangeCompiles(): void

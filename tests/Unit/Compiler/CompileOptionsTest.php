@@ -78,12 +78,75 @@ final class CompileOptionsTest extends TestCase
         $reflection = new ReflectionClass(CompileOptions::class);
         $names = [];
 
-        foreach ($reflection->getMethods() as $method) {
+        foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
             $names[] = $method->getName();
         }
 
         \sort($names);
 
-        self::assertSame(['__construct', 'debug', 'minify', 'sourceMap'], $names);
+        self::assertSame(['__construct', 'debug', 'entryRelPath', 'minify', 'sourceMap'], $names);
+    }
+
+    /** @test */
+    public function theEntryPathDefaultsToTheProjectRoot(): void
+    {
+        self::assertSame('', (new CompileOptions(false, false))->entryRelPath());
+    }
+
+    /**
+     * @test
+     *
+     * @dataProvider relativeEntries
+     */
+    public function aProjectRelativeEntryPathRoundTrips(string $path): void
+    {
+        self::assertSame($path, (new CompileOptions(false, false, false, $path))->entryRelPath());
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function relativeEntries(): array
+    {
+        return [
+            'nested' => ['assets/styles/main.css'],
+            'at the root' => ['main.css'],
+            'dot segment' => ['./assets/main.css'],
+            'dots in a name' => ['assets/..styles/a..b.css'],
+        ];
+    }
+
+    /**
+     * T-01 (ADR-014): only a project-relative path is accepted; the resolver
+     * confines whatever reaches it as well.
+     *
+     * @test
+     *
+     * @dataProvider refusedEntries
+     */
+    public function anythingButAProjectRelativeEntryPathIsRefused(string $path): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new CompileOptions(false, false, false, $path);
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function refusedEntries(): array
+    {
+        return [
+            'absolute' => ['/etc/passwd'],
+            'backslash absolute' => ['\share\x.css'],
+            'drive' => ['C:/x/main.css'],
+            'drive, relative' => ['c:main.css'],
+            'parent segment' => ['../outside.css'],
+            'inner parent segment' => ['assets/../../x.css'],
+            'backslash parent segment' => ['assets\..\..\x.css'],
+            'stream wrapper' => ['file:///etc/passwd'],
+            'php wrapper' => ['php://filter/resource=x'],
+            'nul byte' => ["main.css\0.php"],
+        ];
     }
 }

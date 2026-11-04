@@ -283,7 +283,8 @@ final class CompileOrchestrator
             $processed->css(),
             $imports,
             $candidates,
-            new CompileOptions($bundle->minify(), $this->config->debug())
+            // The entry's own path, so relative imports resolve against its directory.
+            new CompileOptions($bundle->minify(), $this->config->debug(), false, $bundle->inputRel())
         );
 
         foreach ($result->diagnostics()->warnings() as $warning) {
