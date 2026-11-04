@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TailwindPhp\Engine\Css;
 
 use TailwindPhp\Engine\Css\Node\AtRule;
+use TailwindPhp\Engine\Css\Node\Declaration;
 use TailwindPhp\Engine\Css\Node\Node;
 use TailwindPhp\Engine\Css\Node\Rule;
 use TailwindPhp\Engine\Css\Node\StyleSheet;
@@ -23,10 +24,17 @@ use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
  *   selector, the parent is wrapped (`div:is(.a .b)`, `span:is(div)`).
  *   `&-x`, `&_x` and namespaced types (`&svg|a`) are not rewritten.
  * - A parent *list* is expanded per selector when every parent is simple
- *   (`.a, .b { &:hover }` → `.a:hover, .b:hover`) or when any parent has a
- *   pseudo-element (`:is()` cannot hold one). When a parent is complex (a
- *   combinator), or the child uses `&` more than once, the list is wrapped in
- *   `:is()` instead, which keeps the meaning.
+ *   (`.a, .b { &:hover }` → `.a:hover, .b:hover`). When a parent is complex
+ *   (a combinator), or the child uses `&` more than once, the list is wrapped
+ *   in `:is()` instead, which keeps the meaning (`& + &` must also match
+ *   `.a + .b`).
+ * - A list with a pseudo-element part cannot go into `:is()` whole (it cannot
+ *   hold one). A child using `&` once is expanded per part — also when a part
+ *   is complex, so `.a::before, .x .y, .z { &:h }` gives
+ *   `.a::before:h, .x .y:h, .z:h`, where an `:is()` would have given every
+ *   branch the specificity of its most specific part. A child using `&` more
+ *   than once drops the pseudo-element parts (see below) and wraps the rest:
+ *   `.a::before, a, .b { & + & }` → `:is(a, .b) + :is(a, .b)`.
  * - After a pseudo-element only pseudo-classes may follow, so a branch such
  *   as `.a::before b` can never match — and one invalid selector in a list
  *   makes a browser drop the whole rule. Such branches are dropped (the
@@ -39,22 +47,31 @@ use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
  *   it, with the rule re-created inside; nested at-rules stay nested. Any
  *   other block at-rule inside a rule (`@keyframes`) is moved out unchanged.
  * - A top-level `&` means the scoping root and becomes `:scope`.
- * - Rules left without declarations are dropped.
+ * - Rules left without declarations are dropped; a nested rule whose whole
+ *   subtree holds no declaration and no at-rule is skipped before its
+ *   selector is even resolved (it would serialize to nothing), so it raises
+ *   none of the diagnostics below either — nothing is emitted, no limit hidden.
  *
  * The output contains no `&` and no rule inside a rule. Three bounds keep the
- * work and the output linear in the input (threat T-05, ENG-A14): recursion
+ * work and the output bounded by the budget (threat T-05, ENG-A14): recursion
  * stops at {@see Parser::MAX_DEPTH}; a selector that nesting expands may not
  * exceed {@see self::MAX_SELECTOR_BYTES} (otherwise `& &` chains or long
  * parent lists would double it at every level); and all selectors resolved
  * or emitted plus all at-rule preludes together may not exceed
  * {@see self::MAX_OUTPUT_BYTES} — many children of one long selector would
- * otherwise repeat it without limit. Past the first two a subtree is dropped;
- * past the budget the walk stops altogether. Each case is one `E_CSS_SYNTAX`
- * diagnostic (capped like the parser's). The input tree is never modified.
+ * otherwise repeat it without limit (a few KB of nesting may still expand to
+ * megabytes, up to the budget). A nested rule resolved against its parent
+ * also costs {@see self::PART_CHARGE} bytes per part, so the parts resolved
+ * stay proportional to what is charged even when they are one byte each; a
+ * top-level rule and an emitted chunk cost their bytes only.
+ * Past the first two bounds a subtree is dropped; past the budget the walk
+ * stops altogether. Each case is one `E_CSS_SYNTAX` diagnostic, capped like
+ * the parser's — except the budget stop, which is always reported. The input
+ * tree is never modified.
  *
  * @phpstan-type ParentContext array{
  *     0: string, 1: list<string>, 2: bool, 3: bool, 4: string, 5: list<bool>, 6: int,
- *     7: list<int>, 8: int, 9: int, 10: int, 11: list<bool>
+ *     7: list<int>, 8: int, 9: int, 10: int, 11: list<bool>, 12: string
  * }
  */
 final class Nesting
@@ -69,6 +86,15 @@ final class Nesting
      * (ENG-A14, amended) — the design doc 07 input cap.
      */
     public const MAX_OUTPUT_BYTES = 4194304;
+
+    /**
+     * Bytes charged to {@see self::MAX_OUTPUT_BYTES} per selector part on
+     * top of the selector's own bytes: resolving and inspecting a part costs
+     * work whatever its length, so a list of many one-byte parts must not
+     * get 4 MiB worth of them (T-05; 16 ≈ the per-part work of `context()`
+     * measured in bytes of string handling).
+     */
+    public const PART_CHARGE = 16;
 
     /**
      * At-rules whose block carries the enclosing rule's selector into it.
@@ -104,9 +130,15 @@ final class Nesting
      */
     private $stopped = false;
 
+    /**
+     * @var \SplObjectStorage<Rule, bool> Whether a rule's subtree emits anything.
+     */
+    private $emits;
+
     private function __construct(?DiagnosticBag $diagnostics)
     {
         $this->diagnostics = $diagnostics;
+        $this->emits = new \SplObjectStorage();
     }
 
     public static function flatten(StyleSheet $sheet, ?DiagnosticBag $diagnostics = null): StyleSheet
@@ -142,6 +174,13 @@ final class Nesting
             if ($node instanceof Rule) {
                 $this->flush($context, $origin, $chunk, $out);
 
+                // Nothing to emit: skip it before resolving its selector, so
+                // children that would serialize to nothing cost no work and
+                // no budget (T-05).
+                if (!$this->emitsAnything($node)) {
+                    continue;
+                }
+
                 if (!$this->enter($level, $node->line)) {
                     continue;
                 }
@@ -164,10 +203,13 @@ final class Nesting
                     continue;
                 }
 
-                $child = self::context($resolved);
-
-                if ($this->charge(\strlen($child[0]), $node->line)) {
-                    $this->walk($node->nodes, $child, $node, $level + 1, $out);
+                // Charged before its context is built. A nested rule also
+                // pays PART_CHARGE per part: resolving it against a parent
+                // list is where per-part work multiplies (parents × children).
+                // A top-level rule pays its bytes only — its parts are read
+                // once, in proportion to the input.
+                if ($this->charge(self::cost($resolved, $context !== null), $node->line)) {
+                    $this->walk($node->nodes, self::context($resolved), $node, $level + 1, $out);
                 }
 
                 continue;
@@ -224,6 +266,7 @@ final class Nesting
             return;
         }
 
+        // Bytes only: emitting a chunk does no per-part work.
         if ($this->charge(\strlen($context[0]), $origin === null ? null : $origin->line)) {
             $out[] = $origin === null
                 ? new Rule($context[0], $chunk)
@@ -250,12 +293,72 @@ final class Nesting
         }
 
         $this->stopped = true;
+        // Always delivered, even past the cap: it explains why the output
+        // ends early (it can happen only once).
         $this->report(
             \sprintf('Nesting output too large (more than %d bytes); the rest is dropped.', self::MAX_OUTPUT_BYTES),
-            $line
+            $line,
+            true
         );
 
         return false;
+    }
+
+    /**
+     * Budget cost of a resolved selector made of $parts: its bytes as joined
+     * by {@see self::context()}, plus {@see self::PART_CHARGE} per part when
+     * it was resolved against a parent ($nested).
+     *
+     * @param list<string> $parts
+     */
+    private static function cost(array $parts, bool $nested): int
+    {
+        $bytes = 2 * (\count($parts) - 1) + ($nested ? self::PART_CHARGE * \count($parts) : 0);
+
+        foreach ($parts as $part) {
+            $bytes += \strlen($part);
+        }
+
+        return $bytes;
+    }
+
+    /**
+     * Whether $rule's subtree holds anything that ends up in the output: a
+     * declaration, or an at-rule (a statement such as `@import`, or a block,
+     * which is emitted even when empty). Comments do not count. Memoised, so
+     * each rule is inspected once however deep it sits; past
+     * {@see Parser::MAX_DEPTH} levels (a hand-built tree) the answer is a
+     * conservative yes and the walk's own depth cut applies.
+     */
+    private function emitsAnything(Rule $rule, int $depth = 0): bool
+    {
+        if ($this->emits->contains($rule)) {
+            return (bool) $this->emits[$rule];
+        }
+
+        $emits = $depth >= Parser::MAX_DEPTH;
+
+        foreach ($emits ? [] : $rule->nodes as $node) {
+            if ($node instanceof Declaration || $node instanceof AtRule) {
+                $emits = true;
+
+                break;
+            }
+        }
+
+        if (!$emits) {
+            foreach ($rule->nodes as $node) {
+                if ($node instanceof Rule && $this->emitsAnything($node, $depth + 1)) {
+                    $emits = true;
+
+                    break;
+                }
+            }
+        }
+
+        $this->emits[$rule] = $emits;
+
+        return $emits;
     }
 
     /**
@@ -275,16 +378,28 @@ final class Nesting
         return false;
     }
 
-    private function report(string $message, ?int $line): void
+    /**
+     * Add one diagnostic. Ordinary ones are capped at
+     * {@see Tokenizer::MAX_DIAGNOSTICS} (the last being "Too many…"); one slot
+     * above the cap is reserved for $always, the budget stop, so the
+     * flattener never reports more than MAX_DIAGNOSTICS + 1, as before.
+     */
+    private function report(string $message, ?int $line, bool $always = false): void
     {
-        if ($this->diagnostics === null || $this->reported > Tokenizer::MAX_DIAGNOSTICS) {
+        if ($this->diagnostics === null) {
             return;
         }
 
-        ++$this->reported;
+        if (!$always) {
+            if ($this->reported >= Tokenizer::MAX_DIAGNOSTICS) {
+                return;
+            }
 
-        if ($this->reported > Tokenizer::MAX_DIAGNOSTICS) {
-            $message = 'Too many CSS nesting errors; further ones are not reported.';
+            ++$this->reported;
+
+            if ($this->reported === Tokenizer::MAX_DIAGNOSTICS) {
+                $message = 'Too many CSS nesting errors; further ones are not reported.';
+            }
         }
 
         $this->diagnostics->add(new Diagnostic(Diagnostic::ERROR, Diagnostic::E_CSS_SYNTAX, $message, null, $line));
@@ -300,7 +415,9 @@ final class Nesting
      *  7 indexes of the parts without a pseudo-element · 8 their bytes ·
      *  9 bytes `:is()` wrapping adds over all parts for a typed child ·
      * 10 the same over the parts without a pseudo-element ·
-     * 11 per part: a typed child must wrap it (complex or type-led).
+     * 11 per part: a typed child must wrap it (complex or type-led) ·
+     * 12 the `:is()` form of the parts without a pseudo-element, when there
+     *    is a pseudo-element part and at least two others (else '').
      *
      * With 6–11 the size of any per-selector expansion is exact before a
      * single part is built, whatever the shape of the list (ENG-A14).
@@ -340,12 +457,24 @@ final class Nesting
         }
 
         $joined = \implode(', ', $parents);
+        $anyPseudo = \count($plainIndexes) !== \count($parents);
+        $plainIs = '';
+
+        if ($anyPseudo && \count($plainIndexes) > 1) {
+            $plain = [];
+
+            foreach ($plainIndexes as $index) {
+                $plain[] = $parents[$index];
+            }
+
+            $plainIs = ':is(' . \implode(', ', $plain) . ')';
+        }
 
         return [
             $joined,
             $parents,
             $complex,
-            \count($plainIndexes) !== \count($parents),
+            $anyPseudo,
             ':is(' . $joined . ')',
             $pseudoElements,
             $partBytes,
@@ -354,6 +483,7 @@ final class Nesting
             $wrapAll,
             $wrapPlain,
             $needsWrap,
+            $plainIs,
         ];
     }
 
@@ -399,12 +529,26 @@ final class Nesting
                 $count = 1;
             }
 
-            if ($all !== 1 && !$context[3] && ($context[2] || $count > 1)) {
-                if (!self::fits($bytes, $child, $count, $context[4])) {
+            // The list is wrapped in `:is()` when a part is complex or the
+            // child uses `&` more than once (per-part expansion would pair
+            // each part only with itself). Under a list with a pseudo-element
+            // part only the second reason applies, and only the parts without
+            // one are wrapped — the others can never match a combinator form
+            // — when at least two remain (one remaining part is expanded on
+            // its own below).
+            $wrapList = $context[3]
+                ? $count > 1 && $context[12] !== ''
+                : $all !== 1 && ($context[2] || $count > 1);
+
+            if ($wrapList) {
+                $replacement = $context[3] ? $context[12] : $context[4];
+
+                if (!self::fits($bytes, $child, $count, $replacement)) {
                     return null;
                 }
 
-                $resolved[] = SelectorList::replaceAmpersand($child, $context[4]);
+                $resolved[] = SelectorList::replaceAmpersand($child, $replacement);
+                $droppedBranch = $droppedBranch || $context[3];
 
                 continue;
             }

@@ -14,6 +14,7 @@ use TailwindPhp\Engine\Css\Node\StyleSheet;
 use TailwindPhp\Engine\Css\Parser;
 use TailwindPhp\Engine\Css\SelectorList;
 use TailwindPhp\Engine\Css\Serializer;
+use TailwindPhp\Engine\Css\Tokenizer;
 use TailwindPhp\Engine\Diagnostic\Diagnostic;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
 
@@ -396,7 +397,130 @@ final class NestingTest extends TestCase
                 [],
                 1,
             ],
+
+            // TASK-0046 F3: a child using `&` twice pairs every remaining
+            // part with every other (`a + .b` must match too), so the parts
+            // without a pseudo-element are wrapped in `:is()` together.
+            'two ampersands after a pseudo-element in a longer list' => [
+                '.a::before, a, .b { & + & { color: red } }',
+                [['rule', ':is(a, .b) + :is(a, .b)', [$red]]],
+                1,
+            ],
+            'descendant ampersands after a pseudo-element in a longer list' => [
+                '.a::before, a, .b { & & { color: red } }',
+                [['rule', ':is(a, .b) :is(a, .b)', [$red]]],
+                1,
+            ],
+            'two ampersands with a complex part after a pseudo-element' => [
+                '.a::after, .x .y, .z { & > & { color: red } }',
+                [['rule', ':is(.x .y, .z) > :is(.x .y, .z)', [$red]]],
+                1,
+            ],
+            'a typed child with two ampersands after a pseudo-element' => [
+                '.a::before, a, .b { &div + & { color: red } }',
+                [['rule', 'div:is(a, .b) + :is(a, .b)', [$red]]],
+                1,
+            ],
+            // Round 2 (review note): a grandchild of a wrapped multi-`&` child
+            // sees that child as one complex part, as for any single complex
+            // parent (substituted as written, no `:is()` around it).
+            'a grandchild of a wrapped multi-ampersand child' => [
+                '.a::before, .b, .c { & + & { .d + & { color: red } } }',
+                [['rule', '.d + :is(.b, .c) + :is(.b, .c)', [$red]]],
+                1,
+            ],
+            'two ampersands when every part has a pseudo-element' => [
+                '.a::before, .b::after { & + & { color: red } }',
+                [],
+                1,
+            ],
+            // One `&` keeps the per-part expansion under a mixed list (an
+            // `:is()` would change specificity to that of its most specific
+            // part; per part each branch keeps its own).
+            'one ampersand under a mixed list with a complex part stays per part' => [
+                '.a::before, .x .y, .z { &:hover { color: red } }',
+                [['rule', '.a::before:hover, .x .y:hover, .z:hover', [$red]]],
+                0,
+            ],
         ];
+    }
+
+    /**
+     * TASK-0046 F1: a rule whose subtree holds no declaration and no
+     * at-rule emits nothing, so it is skipped before its selector is
+     * resolved — no work, no budget, no diagnostic for it.
+     *
+     * @test
+     */
+    public function rulesThatEmitNothingAreSkippedBeforeResolving(): void
+    {
+        $bag = new DiagnosticBag();
+        $css = '.a::before, .b { c {} d { e {} f { g {} } } } .p { &:hover {} & { & {} } }';
+        $flat = Nesting::flatten(Parser::parse($css, $bag), $bag);
+
+        self::assertSame([], AstDump::of($flat));
+        self::assertSame([], $bag->toArray(), 'nothing is resolved, so nothing is reported');
+
+        // An at-rule, even an empty one, and a statement at-rule still count.
+        $kept = Nesting::flatten(Parser::parse('.a { b { @media x {} } c { @import "x"; } }', $bag), $bag);
+
+        // The empty `@media` node is still produced (the serializer drops it).
+        self::assertCount(2, $kept->nodes);
+        self::assertInstanceOf(AtRule::class, $kept->nodes[0]);
+        self::assertSame('.a c{@import "x";}', Serializer::compact($kept));
+        self::assertSame([], $bag->toArray());
+    }
+
+    /**
+     * TASK-0046 F1: a nested rule resolved against its parent also costs
+     * {@see Nesting::PART_CHARGE} bytes per part, so many short parts stop
+     * the walk long before 4 MiB of them were resolved one by one. Only
+     * there: a top-level rule and an emitted chunk cost their bytes (round 2).
+     *
+     * @test
+     */
+    public function shortPartsAreChargedPerPart(): void
+    {
+        $bag = new DiagnosticBag();
+        $css = \implode(',', \array_fill(0, 1600, 'a')) . '{' . \str_repeat('&:h{x:y}', 3000) . '}';
+        $flat = Nesting::flatten(Parser::parse($css, $bag), $bag);
+
+        // The top-level parent list pays its bytes once (1 600 one-byte parts
+        // joined by `, `). Each child pays 7 998 bytes plus 1 600 × PART_CHARGE
+        // when it is resolved, then its 7 998 bytes again when its
+        // declarations are emitted.
+        $parent = 1600 + 1599 * 2;
+        $selector = 1600 * 3 + 1599 * 2;
+        $perChild = $selector + 1600 * Nesting::PART_CHARGE + $selector;
+
+        self::assertCount(\intdiv(Nesting::MAX_OUTPUT_BYTES - $parent, $perChild), $flat->nodes);
+        self::assertCount(1, $bag);
+        self::assertStringContainsString('Nesting output too large', $bag->all()[0]->message());
+    }
+
+    /**
+     * TASK-0046 F2: the budget stop is reported even after the diagnostic
+     * cap was reached by other nesting diagnostics — it explains why the
+     * output ends early. The nesting diagnostics stay within 101.
+     *
+     * @test
+     */
+    public function theBudgetStopIsReportedEvenAfterTheCap(): void
+    {
+        $bag = new DiagnosticBag();
+        $css = \str_repeat('.a::before, .b { c { x: y } }', 200)
+            . '.' . \str_repeat('q', 8000) . '{' . \str_repeat('&:h{x:y}', 600) . '}';
+        Nesting::flatten(Parser::parse($css, $bag), $bag);
+
+        $messages = [];
+
+        foreach ($bag->all() as $diagnostic) {
+            $messages[] = $diagnostic->message();
+        }
+
+        self::assertLessThanOrEqual(Tokenizer::MAX_DIAGNOSTICS + 1, \count($messages));
+        self::assertStringContainsString('Too many CSS nesting errors', $messages[\count($messages) - 2]);
+        self::assertStringContainsString('Nesting output too large', $messages[\count($messages) - 1]);
     }
 
     /** @test */

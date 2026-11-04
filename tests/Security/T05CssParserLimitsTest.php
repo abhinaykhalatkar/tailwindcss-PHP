@@ -261,6 +261,134 @@ final class T05CssParserLimitsTest extends TestCase
     }
 
     /**
+     * TASK-0046 F1 (verifier probes): many short parent parts times children
+     * that emit nothing once took 2–3 s of CPU for 14–20 KB and no output —
+     * every child was resolved and its context built before the budget
+     * stopped it. A rule whose subtree emits nothing is now skipped before
+     * it is resolved, so the cost is one look per child.
+     *
+     * @test
+     *
+     * @dataProvider childrenThatEmitNothing
+     */
+    public function childrenThatEmitNothingCostNoWork(string $css): void
+    {
+        [$compact, $elapsed] = self::flattenTimed($css, $bag);
+
+        self::assertSame('', $compact);
+        self::assertSame([], $bag->toArray());
+        // Measured on this host after the fix: ≤ 0.02 s; before: 2.1–2.7 s.
+        self::assertLessThan(0.5, $elapsed, \sprintf('%d bytes took %.2f s of CPU', \strlen($css), $elapsed));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function childrenThatEmitNothing(): array
+    {
+        return [
+            '1 600 type parents, 3 000 empty pseudo-class children' => [self::shortParts('a', 1600, '&:h{}', 3000)],
+            '2 700 type parents, 3 000 empty ampersand children' => [self::shortParts('a', 2700, '&{}', 3000)],
+            '1 000 class parents, 3 000 empty pseudo-class children' => [self::shortParts('.a', 1000, '&:h{}', 3000)],
+            '1 600 type parents, 3 000 children holding only empty rules' => [
+                self::shortParts('a', 1600, '&:h{&{}}', 3000),
+            ],
+        ];
+    }
+
+    /**
+     * TASK-0046 F1: the same shapes with a declaration in every child do
+     * emit output; each selector charged costs its bytes plus
+     * {@see Nesting::PART_CHARGE} per part, so the parts resolved stay
+     * proportional to the budget actually charged rather than to 4 MiB of
+     * three-byte parts.
+     *
+     * @test
+     *
+     * @dataProvider shortPartsWithOutput
+     */
+    public function shortPartsCostWorkProportionalToOutput(string $css): void
+    {
+        [$compact, $elapsed] = self::flattenTimed($css, $bag);
+
+        self::assertNotSame('', $compact);
+        self::assertLessThanOrEqual(Nesting::MAX_OUTPUT_BYTES, \strlen($compact));
+        self::assertCount(1, $bag, 'the budget stop');
+        // Measured on this host after the fix: 0.55–0.65 s; before: 1.7–2.1 s.
+        self::assertLessThan(self::SECONDS, $elapsed, \sprintf('%d bytes took %.2f s of CPU', \strlen($css), $elapsed));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function shortPartsWithOutput(): array
+    {
+        return [
+            '1 600 type parents, 3 000 pseudo-class children' => [self::shortParts('a', 1600, '&:h{x:y}', 3000)],
+            '2 700 type parents, 3 000 ampersand children' => [self::shortParts('a', 2700, '&{x:y}', 3000)],
+            '1 000 class parents, 3 000 pseudo-class children' => [self::shortParts('.a', 1000, '&:h{x:y}', 3000)],
+        ];
+    }
+
+    /**
+     * TASK-0046 round 2 (regression found in review): the per-part charge pays
+     * for the per-part work of nesting, so it is taken only when a nested rule
+     * is resolved against its parent — a flat stylesheet of short selector
+     * lists, however large, is emitted in full (it was truncated to 318 KB of
+     * 960 KB when every emission paid it).
+     *
+     * @test
+     */
+    public function aLargeFlatStylesheetIsEmittedInFull(): void
+    {
+        $css = \str_repeat('.a,.b,.c,.d,.e,.f,.g,.h{x:y}', 40000);
+        [$compact, $elapsed] = self::flattenTimed($css, $bag);
+        // Nothing is nested, so flattening must change nothing at all.
+        $unflattened = Serializer::compact(Parser::parse($css, new DiagnosticBag()));
+
+        self::assertGreaterThan(1024 * 1024, \strlen($css));
+        self::assertSame([], $bag->toArray());
+        self::assertSame(\strlen($unflattened), \strlen($compact), 'before the fix: 318 556 of 960 004 bytes');
+        self::assertSame($unflattened, $compact);
+        self::assertLessThan(self::SECONDS, $elapsed, \sprintf('%d bytes took %.2f s of CPU', \strlen($css), $elapsed));
+    }
+
+    /**
+     * $parents copies of $part as one list, holding $children copies of $child.
+     */
+    private static function shortParts(string $part, int $parents, string $child, int $children): string
+    {
+        return \implode(',', \array_fill(0, $parents, $part)) . '{' . \str_repeat($child, $children) . '}';
+    }
+
+    /**
+     * Parse, flatten and serialize $css with the cycle collector paused:
+     * the compact output and the CPU seconds taken.
+     *
+     * @param-out DiagnosticBag $bag
+     *
+     * @return array{0: string, 1: float}
+     */
+    private static function flattenTimed(string $css, ?DiagnosticBag &$bag): array
+    {
+        $bag = new DiagnosticBag();
+        $collecting = \gc_enabled();
+        \gc_disable();
+
+        try {
+            $started = self::cpuSeconds();
+            $compact = Serializer::compact(Nesting::flatten(Parser::parse($css, $bag), $bag));
+            $elapsed = self::cpuSeconds() - $started;
+        } finally {
+            if ($collecting) {
+                \gc_enable();
+            }
+        }
+
+        return [$compact, $elapsed];
+    }
+
+    /**
      * The token cap counts the construct's own tokens, never its terminator:
      * exactly MAX_CONSTRUCT_TOKENS tokens are kept, one more is dropped.
      *
