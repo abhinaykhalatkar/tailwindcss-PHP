@@ -338,6 +338,9 @@ final class T05CssParserLimitsTest extends TestCase
         // The cap, plus at most the block left unclosed by the openers.
         self::assertLessThanOrEqual(2, \count($bag));
 
+        // Below PHP 8.2 there is no memory_reset_peak_usage(), so the memory
+        // bound is enforced by the 8.2+ jobs only; the diagnostics above run
+        // everywhere. Before the bounded stack this peaked at 36 MB.
         if ($resetPeak) {
             self::assertLessThan(8 * 1024 * 1024, $peak, \sprintf('peak %.1f MB', $peak / 1048576));
         }

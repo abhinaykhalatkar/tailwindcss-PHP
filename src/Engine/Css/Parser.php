@@ -490,7 +490,9 @@ final class Parser
      * to keep, storing nothing but the stack of expected closers — the same
      * bracket discipline as {@see self::collect()} (a `)` never closes a
      * `[`), so the construct ends exactly where it would have ended had it
-     * been kept.
+     * been kept — exactly up to {@see self::SKIP_STACK_LIMIT} open brackets;
+     * beyond that, by depth (a mismatched closer may then end it one level
+     * early, which only moves the author's own text, never a boundary).
      *
      * The stack is bounded (T-05): past {@see self::SKIP_STACK_LIMIT} open
      * brackets — far beyond anything a kept construct could hold — further
