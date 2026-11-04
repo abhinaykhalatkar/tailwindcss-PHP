@@ -69,9 +69,10 @@ final class SpacingSizing implements FamilyHandlerInterface
     }
 
     /**
-     * `space-x-reverse` / `space-y-reverse`: the flag alone.
+     * `space-x-reverse` / `space-y-reverse`: the flag alone. The CLI registers
+     * the flag with `@property` for the reverse utility as for the scale.
      *
-     * @return array{0: list<Node>, 1: list<string>}|null
+     * @return array{0: list<Node>, 1: list<string>, 2: list<string>}|null
      */
     private function reverse(Candidate $candidate, string $reverse): ?array
     {
@@ -79,13 +80,14 @@ final class SpacingSizing implements FamilyHandlerInterface
             return null;
         }
 
-        return [[new Rule(self::CHILDREN, [new Declaration($reverse, '1')])], []];
+        return [[new Rule(self::CHILDREN, [new Declaration($reverse, '1')])], [], [$reverse]];
     }
 
     /**
-     * `space-x-4` and the rest: both margins of the axis scaled by the flag.
+     * `space-x-4` and the rest: both margins of the axis scaled by the flag,
+     * which the CLI registers with `@property`.
      *
-     * @return array{0: list<Node>, 1: list<string>}|null
+     * @return array{0: list<Node>, 1: list<string>, 2: list<string>}|null
      */
     private function space(
         Definition $definition,
@@ -113,6 +115,6 @@ final class SpacingSizing implements FamilyHandlerInterface
             new Declaration($sides[1], 'calc(' . $resolved[0] . ' * calc(1 - var(' . $reverse . ')))'),
         ];
 
-        return [[new Rule(self::CHILDREN, $nodes)], $resolved[1]];
+        return [[new Rule(self::CHILDREN, $nodes)], $resolved[1], [$reverse]];
     }
 }

@@ -105,7 +105,10 @@ final class FlexboxGrid implements FamilyHandlerInterface
     }
 
     /**
-     * @return array{0: list<Node>, 1: list<string>}|null
+     * The CLI registers `--tw-content` with `@property` for the functional
+     * forms only; the static `content-none` declares it without registering.
+     *
+     * @return array{0: list<Node>, 1: list<string>, 2?: list<string>}|null
      */
     private function content(Definition $definition, ValueInterface $value, ThemeRegistry $theme): ?array
     {
@@ -131,6 +134,7 @@ final class FlexboxGrid implements FamilyHandlerInterface
         return [
             [new Declaration('--tw-content', $resolved[0]), new Declaration('content', 'var(--tw-content)')],
             $resolved[1],
+            ['--tw-content'],
         ];
     }
 

@@ -378,7 +378,8 @@ final class Definition
 
     /**
      * The `--tw-*` custom properties the row asks the assembler to register
-     * with `@property` (the compiler adds the ones the body declares itself).
+     * with `@property`: exactly what the CLI registers for the utility (a
+     * declared `--tw-*` property is never registered by itself).
      *
      * @return list<string>
      */

@@ -35,10 +35,10 @@ interface FamilyHandlerInterface
     /**
      * Run handler `$name`, one of {@see names()}.
      *
-     * The third element is optional: the `--tw-*` custom properties the
-     * utility relies on, for the assembler to register with `@property`. The
-     * compiler adds every `--tw-*` property the body declares by itself, so a
-     * handler lists only the ones the utility reads without declaring.
+     * The third element is optional: the `--tw-*` custom properties the CLI
+     * registers with `@property` for this utility — exactly those, listed
+     * explicitly (a declared `--tw-*` property is not registered by itself:
+     * `outline-solid` declares `--tw-outline-style`, `outline-2` registers it).
      *
      * Returns `[nodes, usedVars]` or `[nodes, usedVars, properties]`, or null
      * when the handler does not take this candidate.

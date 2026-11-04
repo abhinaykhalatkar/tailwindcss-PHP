@@ -312,9 +312,10 @@ final class Compiler
      * declaration or a rule early, open a comment or carry a control byte.
      *
      * `$properties` are the `--tw-*` custom properties the row or handler asks
-     * to register with `@property`; every `--tw-*` property the body declares
-     * is added to them (any depth), so a utility's registrations are complete
-     * without the data having to repeat its own declarations. A name that is
+     * to register with `@property` — exactly what the CLI registers for the
+     * utility, listed explicitly: registrations cannot be derived from the
+     * declarations (`outline-solid` declares `--tw-outline-style` but the CLI
+     * registers nothing for it, while `outline-2` registers it). A name that is
      * not a `--tw-*` custom property is a programming error in a row or
      * handler, so it throws rather than being refused quietly.
      *
@@ -343,8 +344,6 @@ final class Compiler
                 ));
             }
         }
-
-        self::collectCustomProperties($nodes, $properties);
 
         if ($important) {
             $nodes = self::important($nodes);
@@ -567,26 +566,6 @@ final class Compiler
                 }
             } elseif (($node instanceof Rule || $node instanceof AtRule) && $node->nodes !== null) {
                 self::collectSort($node->nodes, $sortKey);
-            }
-        }
-    }
-
-    /**
-     * Every `--tw-*` custom property the body declares, nested blocks
-     * included, appended to $properties.
-     *
-     * @param list<Node> $nodes
-     * @param list<string> $properties
-     */
-    private static function collectCustomProperties(array $nodes, array &$properties): void
-    {
-        foreach ($nodes as $node) {
-            if ($node instanceof Declaration) {
-                if (Definition::isRegistrableProperty($node->property)) {
-                    $properties[] = $node->property;
-                }
-            } elseif (($node instanceof Rule || $node instanceof AtRule) && $node->nodes !== null) {
-                self::collectCustomProperties($node->nodes, $properties);
             }
         }
     }

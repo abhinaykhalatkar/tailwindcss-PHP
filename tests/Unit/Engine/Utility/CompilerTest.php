@@ -685,15 +685,16 @@ final class CompilerTest extends TestCase
     }
 
     /** @test */
-    public function customPropertiesToRegisterAreCollectedFromTheBodyAndTheRow(): void
+    public function customPropertiesToRegisterComeOnlyFromTheRowOrHandler(): void
     {
         $registry = new Registry([
-            // A static row declaring a --tw-* property and asking for another.
+            // A static row declaring a --tw-* property and listing what the CLI registers.
             'rev' => [
                 'static' => ['--tw-divide-x-reverse' => '1'],
-                'properties' => ['--tw-divide-y-reverse', '--tw-divide-x-reverse'],
+                'properties' => ['--tw-divide-y-reverse', '--tw-divide-x-reverse', '--tw-divide-x-reverse'],
             ],
-            // A functional row with nested declarations: collected at any depth.
+            // A functional row declaring a --tw-* property it does not register (the CLI does
+            // the same for `outline-solid`): declarations are never collected.
             'glow' => ['props' => ['--tw-glow'], 'bare' => 'integer', 'properties' => ['--tw-shadow']],
             'plain' => ['static' => ['display' => 'flex']],
         ]);
@@ -705,17 +706,17 @@ final class CompilerTest extends TestCase
         self::assertNotNull($rev);
         self::assertNotNull($glow);
         self::assertNotNull($plain);
-        // The row's list first, then the declared ones, without duplicates.
+        // The row's list, in its order, without duplicates — and nothing else.
         self::assertSame(['--tw-divide-y-reverse', '--tw-divide-x-reverse'], $rev->properties);
-        self::assertSame(['--tw-shadow', '--tw-glow'], $glow->properties);
+        self::assertSame(['--tw-shadow'], $glow->properties);
         self::assertSame([], $plain->properties);
 
-        // A custom utility body declaring a --tw-* property reports it too.
+        // A custom utility body declaring a --tw-* property registers nothing by itself.
         $registry->addCustom('spin', [new Declaration('--tw-rotate', '45deg'), new Declaration('rotate', '45deg')]);
         $spin = self::compiled('spin', $registry);
 
         self::assertNotNull($spin);
-        self::assertSame(['--tw-rotate'], $spin->properties);
+        self::assertSame([], $spin->properties);
     }
 
     /** @test */

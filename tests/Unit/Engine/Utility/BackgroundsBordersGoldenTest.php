@@ -15,11 +15,11 @@ use TailwindPhp\Tests\Unit\Engine\Utility\Support\FamilyGoldenRunner;
  * the rules the pinned CLI emitted for it.
  *
  * `edge-colors` is included because most of it is this family (`bg-*`, `border-*`, `ring-*`
- * colours). `edge-rejections` is not: its one family line, `bg-[url(javascript:alert(1))]`,
+ * colours). `edge-rejections` is not: of its five family lines, `bg-[url(javascript:alert(1))]`
  * is allow-listed for the CLI's output, but the runner reads the golden with `Css\Parser`,
  * which drops that declaration as a malformed unquoted `url(`. Both sides are then empty,
- * so the runner would report the shared entry as stale. The engine's refusal is asserted in
- * `Handlers\BackgroundsBordersTest` instead.
+ * so the runner would report the shared entry as stale (the other four lines match). The
+ * engine's refusal is asserted in `Handlers\BackgroundsBordersTest` instead.
  *
  * Which candidates count is decided by the hand-written inventory (the 98 %
  * denominator, ENG-A12), never by the registry.

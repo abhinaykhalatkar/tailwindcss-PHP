@@ -201,21 +201,23 @@ final class FlexboxGridTest extends TestCase
     }
 
     /**
-     * `content` declares `--tw-content`, which the assembler registers with
-     * `@property` (the golden has the rule); the grid handlers declare none.
+     * The functional `content-*` forms register `--tw-content` with
+     * `@property` (the golden has the rule); the static `content-none`
+     * declares it without registering, as the CLI does; the grid handlers
+     * register none.
      *
      * @test
      */
     public function theCustomPropertiesToRegisterAreReported(): void
     {
-        foreach (['content-none', "content-['a']", 'content-(--c)'] as $candidate) {
+        foreach (["content-['a']", 'content-(--c)'] as $candidate) {
             $compiled = self::compiled($candidate);
 
             self::assertNotNull($compiled, $candidate);
             self::assertSame(['--tw-content'], $compiled->properties, $candidate);
         }
 
-        foreach (['grid-cols-3', 'col-span-2', 'content-center'] as $candidate) {
+        foreach (['content-none', 'grid-cols-3', 'col-span-2', 'content-center'] as $candidate) {
             $compiled = self::compiled($candidate);
 
             self::assertNotNull($compiled, $candidate);

@@ -251,7 +251,8 @@ final class BackgroundsBorders implements FamilyHandlerInterface
             $nodes[] = new Declaration($start, 'calc(' . $width[0] . ' * ' . $reverse . ')');
             $nodes[] = new Declaration($end, 'calc(' . $width[0] . ' * calc(1 - ' . $reverse . '))');
 
-            return [[new Rule(self::DIVIDE_SELECTOR, $nodes)], $width[1]];
+            // The CLI registers the reverse flag for the width utility (the row lists the style).
+            return [[new Rule(self::DIVIDE_SELECTOR, $nodes)], $width[1], ['--tw-divide-' . $axis . '-reverse']];
         }
 
         if ($definition->named() !== []) {
@@ -269,9 +270,9 @@ final class BackgroundsBorders implements FamilyHandlerInterface
     }
 
     /**
-     * `divide-x-reverse` / `divide-y-reverse`.
+     * `divide-x-reverse` / `divide-y-reverse`; the CLI registers the flag here too.
      *
-     * @return array{0: list<Node>, 1: list<string>}|null
+     * @return array{0: list<Node>, 1: list<string>, 2: list<string>}|null
      */
     private static function divideReverse(Definition $definition, Candidate $candidate): ?array
     {
@@ -280,8 +281,9 @@ final class BackgroundsBorders implements FamilyHandlerInterface
         }
 
         $axis = $definition->root() === 'divide-y-reverse' ? 'y' : 'x';
+        $flag = '--tw-divide-' . $axis . '-reverse';
 
-        return [[new Rule(self::DIVIDE_SELECTOR, [new Declaration('--tw-divide-' . $axis . '-reverse', '1')])], []];
+        return [[new Rule(self::DIVIDE_SELECTOR, [new Declaration($flag, '1')])], [], [$flag]];
     }
 
     /**
