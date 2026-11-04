@@ -261,7 +261,10 @@ final class ArbitraryValue implements ValueInterface
      *
      * - `_` becomes a space, except an escaped `\_` (which becomes `_`), any
      *   `_` inside `url(…)` / `src(…)`, and the first argument of `var(…)` /
-     *   `theme(…)` (a variable name);
+     *   `theme(…)` (a variable name); frames are named by
+     *   {@see self::nameBefore()}, which stops at `#` and `@`, so `#url(a_b)`
+     *   and `@url(a_b)` keep their underscore too — safe (the value was
+     *   validated as an ordinary block), though v4 may decode it;
      * - inside math functions (`calc()`, `min()`, `clamp()`, …) operators
      *   get the spaces CSS requires: `calc(100%-2rem)` → `calc(100% - 2rem)`.
      *
@@ -538,7 +541,9 @@ final class ArbitraryValue implements ValueInterface
      * Offset just past the escape starting at the backslash at $i (CSS Syntax
      * §4.3.7: up to six hex digits plus one whitespace, or any other byte), or
      * null when nothing follows, a forbidden byte follows, or the escape
-     * decodes to a control character (C0 or DEL).
+     * decodes to a control character (C0 or DEL). Only a space ends a hex
+     * escape here: a tab would do in CSS, but it is a byte below 0x20 and
+     * those are refused everywhere.
      */
     private static function escapeEnd(string $raw, int $i, int $length): ?int
     {
@@ -560,7 +565,7 @@ final class ArbitraryValue implements ValueInterface
 
         $end = $i + 1 + $digits;
 
-        if ($end < $length && ($raw[$end] === ' ' || $raw[$end] === "\t")) {
+        if ($end < $length && $raw[$end] === ' ') {
             ++$end;
         }
 
@@ -575,11 +580,14 @@ final class ArbitraryValue implements ValueInterface
      *   function and its string is checked like any other;
      * - the offset of the closing `)` for a well-formed unquoted url;
      * - null for anything the tokenizer would turn into a bad-url (a quote or
-     *   `(` inside, whitespace not followed by `)`, a bad escape, no `)`).
+     *   `(` inside, whitespace not followed by `)`, a bad escape, no `)`),
+     *   and for any byte {@see self::isSafe()} refuses everywhere (below
+     *   0x20 — tab included —, DEL, `{`, `}`): the caller jumps to the `)`,
+     *   so the body is checked here or not at all.
      */
     private static function unquotedUrlEnd(string $raw, int $j, int $length): ?int
     {
-        $j += (int) \strspn($raw, " \t", $j);
+        $j += (int) \strspn($raw, ' ', $j);
 
         if ($j < $length && ($raw[$j] === '"' || $raw[$j] === "'")) {
             return -1;
@@ -588,12 +596,16 @@ final class ArbitraryValue implements ValueInterface
         while ($j < $length) {
             $c = $raw[$j];
 
+            if (self::isForbiddenByte($c)) {
+                return null;
+            }
+
             if ($c === ')') {
                 return $j;
             }
 
-            if ($c === ' ' || $c === "\t") {
-                $j += (int) \strspn($raw, " \t", $j);
+            if ($c === ' ') {
+                $j += (int) \strspn($raw, ' ', $j);
 
                 return $j < $length && $raw[$j] === ')' ? $j : null;
             }

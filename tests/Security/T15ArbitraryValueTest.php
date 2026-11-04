@@ -98,6 +98,21 @@ final class T15ArbitraryValueTest extends TestCase
             'hash url inside brackets' => ['[#url(x/*)]'],
             'at-keyword url inside brackets' => ['[@url(x/*)]'],
             'number before url' => ['1url(x/*)'],
+
+            // Round-3 verifier: the url-token path jumped to the closing `)`
+            // without checking the bytes of the url body, so a control byte,
+            // DEL or a brace inside it reached CSS (DEL makes it a bad-url).
+            'delete inside an unquoted url' => ["url(a\x7Fb)"],
+            'nul inside an unquoted url' => ["url(a\x00b)"],
+            'line feed inside an unquoted url' => ["url(a\nb)"],
+            'unit separator inside an unquoted url' => ["url(a\x1Fb)"],
+            'open brace inside an unquoted url' => ['url(a{b)'],
+            'close brace inside an unquoted url' => ['url(a}b)'],
+            'leading tab inside an unquoted url' => ["url(\ta)"],
+            'trailing tab inside an unquoted url' => ["url(a\t)"],
+            'tab after a space inside an unquoted url' => ["url(a \t)"],
+            'tab ending a hex escape' => ["url(\\61\t)"],
+            'tab ending a hex escape outside a url' => ["a\\61\tb"],
         ];
     }
 
@@ -210,7 +225,7 @@ final class T15ArbitraryValueTest extends TestCase
 
             foreach ($parser->parse($raw) as $candidate) {
                 foreach (self::emittedTexts($candidate) as $text) {
-                    if (!self::oracleSafe($text)) {
+                    if (self::hasForbiddenByte($text) || !self::oracleSafe($text)) {
                         $unsafe[] = \sprintf('%s path: %s emitted %s', $path, $raw, $text);
                     }
                 }
@@ -232,7 +247,7 @@ final class T15ArbitraryValueTest extends TestCase
      */
     public function everyValidatedValueIsSafeForTheCssOracle(): void
     {
-        $alphabet = ['u', 'r', 'l', '(', ')', "'", '_', ';', '/', '*', '\\', 'j', ' ', ':', 'a'];
+        $alphabet = ['u', 'r', 'l', '(', ')', "'", '_', ';', '/', '*', '\\', 'j', ' ', ':', 'a', "\x7F", '}', "\n"];
         $strings = [''];
         $accepted = 0;
 
@@ -262,7 +277,11 @@ final class T15ArbitraryValueTest extends TestCase
 
                     ++$accepted;
 
-                    if (!ArbitraryValue::isSafe($normalised) || !self::oracleSafe($normalised)) {
+                    if (
+                        self::hasForbiddenByte($normalised)
+                        || !ArbitraryValue::isSafe($normalised)
+                        || !self::oracleSafe($normalised)
+                    ) {
                         self::fail(\sprintf(
                             '%s normalised to %s, which the CSS oracle refuses',
                             \json_encode($raw, \JSON_UNESCAPED_SLASHES),
@@ -618,6 +637,25 @@ final class T15ArbitraryValueTest extends TestCase
         }
 
         return true;
+    }
+
+    /**
+     * The validator's own promise, checked independently of it: no byte below
+     * 0x20, no DEL and no brace anywhere in emitted text.
+     */
+    private static function hasForbiddenByte(string $text): bool
+    {
+        $length = \strlen($text);
+
+        for ($i = 0; $i < $length; ++$i) {
+            $o = \ord($text[$i]);
+
+            if ($o < 0x20 || $o === 0x7F || $text[$i] === '{' || $text[$i] === '}') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
