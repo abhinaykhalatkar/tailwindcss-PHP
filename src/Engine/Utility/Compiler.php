@@ -127,7 +127,13 @@ final class Compiler
             $body = $this->body($definition, $candidate, $theme);
 
             if ($body !== null) {
-                return $this->finish($body[0], $body[1], $definition->order(), $candidate->important);
+                return $this->finish(
+                    $body[0],
+                    $body[1],
+                    \array_merge($definition->properties(), $body[2] ?? []),
+                    $definition->order(),
+                    $candidate->important
+                );
             }
         }
 
@@ -135,7 +141,10 @@ final class Compiler
     }
 
     /**
-     * @return array{0: list<Node>, 1: list<string>}|null
+     * `[nodes, usedVars]`, or `[nodes, usedVars, properties]` from a handler
+     * that names `--tw-*` properties to register beyond the ones it declares.
+     *
+     * @return array{0: list<Node>, 1: list<string>, 2?: list<string>}|null
      */
     private function body(Definition $definition, Candidate $candidate, ThemeRegistry $theme): ?array
     {
@@ -284,6 +293,7 @@ final class Compiler
         return $this->finish(
             [new Declaration($candidate->property, $value->normalised)],
             [],
+            [],
             null,
             $candidate->important
         );
@@ -301,14 +311,40 @@ final class Compiler
      * not a plain name, or a value, prelude or selector that could end a
      * declaration or a rule early, open a comment or carry a control byte.
      *
+     * `$properties` are the `--tw-*` custom properties the row or handler asks
+     * to register with `@property`; every `--tw-*` property the body declares
+     * is added to them (any depth), so a utility's registrations are complete
+     * without the data having to repeat its own declarations. A name that is
+     * not a `--tw-*` custom property is a programming error in a row or
+     * handler, so it throws rather than being refused quietly.
+     *
      * @param list<Node> $nodes
      * @param list<string> $used
+     * @param list<string> $properties
+     *
+     * @throws \LogicException When a property to register is not a `--tw-*` custom property.
      */
-    private function finish(array $nodes, array $used, ?string $order, bool $important): ?CompiledUtility
-    {
+    private function finish(
+        array $nodes,
+        array $used,
+        array $properties,
+        ?string $order,
+        bool $important
+    ): ?CompiledUtility {
         if (!self::emittable($nodes, 0)) {
             return null;
         }
+
+        foreach ($properties as $property) {
+            if (!Definition::isRegistrableProperty($property)) {
+                throw new \LogicException(\sprintf(
+                    'A utility asked to register "%s", which is not a --tw-* custom property.',
+                    $property
+                ));
+            }
+        }
+
+        self::collectCustomProperties($nodes, $properties);
 
         if ($important) {
             $nodes = self::important($nodes);
@@ -326,7 +362,7 @@ final class Compiler
         return new CompiledUtility(
             $nodes,
             \array_values(\array_unique($used)),
-            [],
+            \array_values(\array_unique($properties)),
             \array_values(\array_unique($sortKey))
         );
     }
@@ -531,6 +567,26 @@ final class Compiler
                 }
             } elseif (($node instanceof Rule || $node instanceof AtRule) && $node->nodes !== null) {
                 self::collectSort($node->nodes, $sortKey);
+            }
+        }
+    }
+
+    /**
+     * Every `--tw-*` custom property the body declares, nested blocks
+     * included, appended to $properties.
+     *
+     * @param list<Node> $nodes
+     * @param list<string> $properties
+     */
+    private static function collectCustomProperties(array $nodes, array &$properties): void
+    {
+        foreach ($nodes as $node) {
+            if ($node instanceof Declaration) {
+                if (Definition::isRegistrableProperty($node->property)) {
+                    $properties[] = $node->property;
+                }
+            } elseif (($node instanceof Rule || $node instanceof AtRule) && $node->nodes !== null) {
+                self::collectCustomProperties($node->nodes, $properties);
             }
         }
     }

@@ -51,7 +51,7 @@ final class Definition
     private const KEYS = [
         'static' => true, 'props' => true, 'theme' => true, 'bare' => true, 'fraction' => true,
         'negative' => true, 'arbitrary' => true, 'default' => true, 'order' => true, 'named' => true,
-        'modifier' => true, 'handler' => true, 'variants' => true,
+        'modifier' => true, 'handler' => true, 'variants' => true, 'properties' => true,
     ];
 
     /**
@@ -130,6 +130,11 @@ final class Definition
      * @var string|null
      */
     private $handler;
+
+    /**
+     * @var list<string> `--tw-*` custom properties to register with `@property`.
+     */
+    private $properties = [];
 
     /**
      * @var bool
@@ -370,6 +375,17 @@ final class Definition
     }
 
     /**
+     * The `--tw-*` custom properties the row asks the assembler to register
+     * with `@property` (the compiler adds the ones the body declares itself).
+     *
+     * @return list<string>
+     */
+    public function properties(): array
+    {
+        return $this->properties;
+    }
+
+    /**
      * @param array<mixed> $row
      *
      * @throws \InvalidArgumentException
@@ -384,10 +400,11 @@ final class Definition
 
         $definition = new self($root);
         $definition->order = self::optionalOrder($root, $row);
+        $definition->properties = self::propertyNames($root, self::field($row, 'properties', []));
 
         if (\array_key_exists('static', $row)) {
             foreach (\array_keys($row) as $key) {
-                if ($key !== 'static' && $key !== 'order') {
+                if ($key !== 'static' && $key !== 'order' && $key !== 'properties') {
                     throw self::invalid($root, \sprintf('a static definition takes no "%s"', (string) $key));
                 }
             }
@@ -544,6 +561,39 @@ final class Definition
         }
 
         return $list;
+    }
+
+    /**
+     * `--tw-*` custom property names: `--tw-` followed by lower-case letters,
+     * digits and `-`.
+     *
+     * @param mixed $value
+     *
+     * @return list<string>
+     *
+     * @throws \InvalidArgumentException
+     */
+    private static function propertyNames(string $root, $value): array
+    {
+        $names = self::stringList($root, 'properties', $value);
+
+        foreach ($names as $name) {
+            if (!self::isRegistrableProperty($name)) {
+                throw self::invalid($root, '"properties" must list --tw-* custom property names');
+            }
+        }
+
+        return \array_values(\array_unique($names));
+    }
+
+    /**
+     * Whether $name is a `--tw-*` custom property the assembler may register.
+     */
+    public static function isRegistrableProperty(string $name): bool
+    {
+        return \strlen($name) > 5
+            && \strncmp($name, '--tw-', 5) === 0
+            && \strspn($name, 'abcdefghijklmnopqrstuvwxyz0123456789-', 5) === \strlen($name) - 5;
     }
 
     /**

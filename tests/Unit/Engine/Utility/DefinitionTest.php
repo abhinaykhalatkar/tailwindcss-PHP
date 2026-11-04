@@ -181,11 +181,34 @@ final class DefinitionTest extends TestCase
                 ['variants' => [['props' => ['display'], 'order' => null]]],
                 'takes neither',
             ],
+            'properties not --tw-' => ['x', ['static' => ['a' => 'b'], 'properties' => ['--x']], 'properties'],
+            'properties with an upper-case name' => [
+                'x',
+                ['props' => ['a'], 'properties' => ['--tw-Shadow']],
+                'properties',
+            ],
+            'properties not a list' => ['x', ['props' => ['a'], 'properties' => '--tw-x'], 'properties'],
             'variant not a row' => ['x', ['variants' => ['flex']], 'must be a row'],
             'upper-case root' => ['Flex', ['static' => ['display' => 'flex']], 'Invalid utility root'],
             'root with a double dash' => ['a--b', ['static' => ['a' => 'b']], 'Invalid utility root'],
             'root ending in a dash' => ['a-', ['static' => ['a' => 'b']], 'Invalid utility root'],
             'empty root' => ['', ['static' => ['a' => 'b']], 'Invalid utility root'],
         ];
+    }
+
+    /** @test */
+    public function propertiesToRegisterAreExposedForStaticAndFunctionalRows(): void
+    {
+        $static = Definition::fromRow('x', ['static' => ['a' => 'b'], 'properties' => ['--tw-a', '--tw-a']]);
+        $functional = Definition::fromRow('y', ['props' => ['a'], 'properties' => ['--tw-b-1']]);
+        $plain = Definition::fromRow('z', ['props' => ['a']]);
+
+        self::assertSame(['--tw-a'], $static->properties());
+        self::assertSame(['--tw-b-1'], $functional->properties());
+        self::assertSame([], $plain->properties());
+        self::assertTrue(Definition::isRegistrableProperty('--tw-shadow-color'));
+        self::assertFalse(Definition::isRegistrableProperty('--tw-'));
+        self::assertFalse(Definition::isRegistrableProperty('--shadow'));
+        self::assertFalse(Definition::isRegistrableProperty('color'));
     }
 }

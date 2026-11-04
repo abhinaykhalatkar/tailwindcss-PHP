@@ -681,7 +681,50 @@ final class CompilerTest extends TestCase
     /** @test */
     public function everyLayoutRowIsValid(): void
     {
-        self::assertSame(\count(Layout::rows()), (new Registry(Utilities::table()))->validateAll());
+        self::assertSame(\count(Utilities::table()), (new Registry(Utilities::table()))->validateAll());
+    }
+
+    /** @test */
+    public function customPropertiesToRegisterAreCollectedFromTheBodyAndTheRow(): void
+    {
+        $registry = new Registry([
+            // A static row declaring a --tw-* property and asking for another.
+            'rev' => [
+                'static' => ['--tw-divide-x-reverse' => '1'],
+                'properties' => ['--tw-divide-y-reverse', '--tw-divide-x-reverse'],
+            ],
+            // A functional row with nested declarations: collected at any depth.
+            'glow' => ['props' => ['--tw-glow'], 'bare' => 'integer', 'properties' => ['--tw-shadow']],
+            'plain' => ['static' => ['display' => 'flex']],
+        ]);
+
+        $rev = self::compiled('rev', $registry);
+        $glow = self::compiled('glow-2', $registry);
+        $plain = self::compiled('plain', $registry);
+
+        self::assertNotNull($rev);
+        self::assertNotNull($glow);
+        self::assertNotNull($plain);
+        // The row's list first, then the declared ones, without duplicates.
+        self::assertSame(['--tw-divide-y-reverse', '--tw-divide-x-reverse'], $rev->properties);
+        self::assertSame(['--tw-shadow', '--tw-glow'], $glow->properties);
+        self::assertSame([], $plain->properties);
+
+        // A custom utility body declaring a --tw-* property reports it too.
+        $registry->addCustom('spin', [new Declaration('--tw-rotate', '45deg'), new Declaration('rotate', '45deg')]);
+        $spin = self::compiled('spin', $registry);
+
+        self::assertNotNull($spin);
+        self::assertSame(['--tw-rotate'], $spin->properties);
+    }
+
+    /** @test */
+    public function aRowMayOnlyRegisterTailwindCustomProperties(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('properties');
+
+        (new Registry(['x' => ['static' => ['display' => 'flex'], 'properties' => ['--x']]]))->definitions('x');
     }
 
     private static function css(string $candidate, ?Registry $registry = null, ?ThemeRegistry $theme = null): ?string

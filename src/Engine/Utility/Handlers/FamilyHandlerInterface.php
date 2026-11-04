@@ -35,9 +35,14 @@ interface FamilyHandlerInterface
     /**
      * Run handler `$name`, one of {@see names()}.
      *
-     * @return array{0: list<\TailwindPhp\Engine\Css\Node\Node>, 1: list<string>}|null `[nodes, usedVars]`, or null
-     *                                                                                 when the handler does not
-     *                                                                                 take this candidate
+     * The third element is optional: the `--tw-*` custom properties the
+     * utility relies on, for the assembler to register with `@property`. The
+     * compiler adds every `--tw-*` property the body declares by itself, so a
+     * handler lists only the ones the utility reads without declaring.
+     *
+     * @return array{0: list<\TailwindPhp\Engine\Css\Node\Node>, 1: list<string>, 2?: list<string>}|null
+     *                                                                                                   `[nodes, usedVars]` or `[nodes, usedVars, properties]`,
+     *                                                                                                   or null when the handler does not take this candidate
      */
     public function run(string $name, Definition $definition, Candidate $candidate, ThemeRegistry $theme): ?array;
 }
