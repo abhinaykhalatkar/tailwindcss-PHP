@@ -272,6 +272,9 @@ final class ValueResolver
                 return self::isNumber($name) ? self::signed($name . 'deg', $negative) : null;
             case 'duration':
                 return self::isInteger($name) ? self::signed($name . 'ms', $negative) : null;
+            case 'pixel':
+                // Whole pixels (`decoration-2`, `border-2`, `ring-2`): `2px`, and `0px` for zero.
+                return self::isInteger($name) ? self::signed($name . 'px', $negative) : null;
             default:
                 return null;
         }

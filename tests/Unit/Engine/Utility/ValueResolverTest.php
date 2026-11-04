@@ -68,6 +68,7 @@ final class ValueResolverTest extends TestCase
         $rotate = ['props' => ['rotate'], 'bare' => 'angle', 'negative' => true];
         $duration = ['props' => ['transition-duration'], 'bare' => 'duration'];
         $clamp = ['props' => ['-webkit-line-clamp'], 'bare' => 'line-count'];
+        $offset = ['props' => ['text-underline-offset'], 'bare' => 'pixel', 'negative' => true];
         $columns = ['props' => ['columns'], 'theme' => ['container'], 'bare' => 'integer'];
 
         return [
@@ -110,6 +111,10 @@ final class ValueResolverTest extends TestCase
             'angle' => [$rotate, new NamedValue('45'), true, ['calc(45deg * -1)', []]],
             'duration' => [$duration, new NamedValue('300'), false, ['300ms', []]],
             'line-count' => [$clamp, new NamedValue('3'), false, ['3', []]],
+            'pixel' => [$offset, new NamedValue('2'), false, ['2px', []]],
+            'pixel zero' => [$offset, new NamedValue('0'), false, ['0px', []]],
+            'negative pixel' => [$offset, new NamedValue('2'), true, ['calc(2px * -1)', []]],
+            'pixel refuses decimals' => [$offset, new NamedValue('1.5'), false, null],
             'no bare kind' => [['props' => ['float'], 'named' => ['left' => 'left']], new NamedValue('4'), false, null],
             // Rule 4.
             'fraction' => [$inset, new NamedValue('1/2', true), false, ['calc(1/2 * 100%)', []]],

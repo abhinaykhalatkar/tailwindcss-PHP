@@ -38,7 +38,9 @@ final class Definition
      *
      * @var list<string>
      */
-    public const BARE_KINDS = ['spacing-multiplier', 'integer', 'percentage', 'angle', 'duration', 'line-count'];
+    public const BARE_KINDS = [
+        'spacing-multiplier', 'integer', 'percentage', 'angle', 'duration', 'line-count', 'pixel',
+    ];
 
     /**
      * @var list<string>
