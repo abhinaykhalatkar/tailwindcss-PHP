@@ -739,6 +739,101 @@ final class ThemeRegistryTest extends TestCase
         }
     }
 
+    // ------------------------------------------------- ignored sub-namespaces
+
+    /** @test */
+    public function aBroaderNamespaceDoesNotReachItsSubNamespaces(): void
+    {
+        $registry = $this->registry([
+            '--font-sans' => 'ui-sans-serif',
+            '--font-weight-bold' => '700',
+            '--text-sm' => '0.875rem',
+            '--text-shadow-sm' => '0 1px 0 red',
+            '--inset-shadow-sm' => 'inset 0 1px red',
+            '--inset-ring-1' => 'inset 0 0 0 1px',
+        ]);
+
+        self::assertNull($registry->resolve('font', 'weight-bold'));
+        self::assertNotNull($registry->resolve('font-weight', 'bold'));
+        self::assertNotNull($registry->resolve('font', 'sans'));
+        self::assertNull($registry->resolve('text', 'shadow-sm'));
+        self::assertNotNull($registry->resolve('text-shadow', 'sm'));
+        self::assertNotNull($registry->resolve('text', 'sm'));
+        self::assertNull($registry->resolve('inset', 'shadow-sm'));
+        self::assertNull($registry->resolve('inset', 'ring-1'));
+        self::assertNotNull($registry->resolve('inset-shadow', 'sm'));
+    }
+
+    /** @test */
+    public function hasAndCompanionFollowTheSameRule(): void
+    {
+        $registry = $this->registry([
+            '--font-weight-bold' => '700',
+            '--font-weight-bold--x' => '1',
+            '--text-shadow-sm' => '0 1px 0 red',
+            '--text-sm' => '0.875rem',
+            '--text-sm--line-height' => '1.4',
+        ]);
+
+        self::assertFalse($registry->has('font', 'weight-bold'));
+        self::assertTrue($registry->has('font-weight', 'bold'));
+        self::assertFalse($registry->has('text', 'shadow-sm'));
+        self::assertTrue($registry->has('text', 'sm'));
+        self::assertNull($registry->companion('font', 'weight-bold', 'x'));
+        self::assertNotNull($registry->companion('font-weight', 'bold', 'x'));
+        self::assertNotNull($registry->companion('text', 'sm', 'line-height'));
+    }
+
+    /** @test */
+    public function namespaceKeysLeaveTheSubNamespacesOut(): void
+    {
+        $registry = $this->registry([
+            '--font-sans' => 'a',
+            '--font-weight-bold' => '700',
+            '--font-size-lg' => '1rem',
+            '--font-serif' => 'b',
+            '--text-xs' => '0.75rem',
+            '--text-shadow-sm' => 'x',
+            '--text-decoration-color-red' => 'red',
+            '--text-sm' => '0.875rem',
+        ]);
+
+        self::assertSame(['sans', 'serif'], $registry->namespaceKeys('font'));
+        self::assertSame(['bold'], $registry->namespaceKeys('font-weight'));
+        self::assertSame(['xs', 'sm'], $registry->namespaceKeys('text'));
+        self::assertSame(['sm'], $registry->namespaceKeys('text-shadow'));
+    }
+
+    /** @test */
+    public function theRuleIsAppliedToKeysAddedLaterToo(): void
+    {
+        $registry = $this->registry(['--font-sans' => 'a']);
+
+        self::assertSame(['sans'], $registry->namespaceKeys('font'));
+
+        $registry->merge(['--font-weight-thin' => '100', '--font-mono' => 'b'], ThemeFlags::none());
+
+        self::assertSame(['sans', 'mono'], $registry->namespaceKeys('font'));
+        self::assertNull($registry->resolve('font', 'weight-thin'));
+    }
+
+    /**
+     * Only lookups are narrowed: the variables are still defined, found by their
+     * full name and emitted like any other.
+     *
+     * @test
+     */
+    public function theVariablesStayDefinedAndEmittable(): void
+    {
+        $registry = $this->registry(['--font-weight-bold' => '700']);
+
+        self::assertNotNull($registry->get('--font-weight-bold'));
+
+        $registry->markUsed('--font-weight-bold');
+
+        self::assertSame(['--font-weight-bold'], \array_keys($registry->usedVars()));
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private function resolved(ThemeRegistry $registry, string $namespace, string $key): ThemeValue

@@ -6,6 +6,7 @@ namespace TailwindPhp\Engine\Theme;
 
 use TailwindPhp\Engine\Css\Node\AtRule;
 use TailwindPhp\Engine\Css\Parser;
+use TailwindPhp\Engine\Data\ThemeNamespaces;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
 
 /**
@@ -25,7 +26,11 @@ use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
  * variable, and `--<ns>-*: initial` removes a namespace — except for the
  * sub-namespaces Tailwind protects (`--font-*` leaves `--font-weight-*`,
  * `--inset-*` leaves `--inset-shadow-*`, `--text-*` leaves `--text-shadow-*` and
- * its siblings), which the pinned 4.1.18 CLI was checked to do.
+ * its siblings), which the pinned 4.1.18 CLI was checked to do. The lookups
+ * ({@see self::has()}, {@see self::resolve()}, {@see self::companion()},
+ * {@see self::namespaceKeys()}) skip those same sub-namespaces
+ * ({@see ThemeNamespaces}, v4's `ignoredThemeKeyMap`): `resolve('font',
+ * 'weight-bold')` is null, `resolve('font-weight', 'bold')` is the variable.
  *
  * **What is emitted** ({@see self::emittable()}), as verified against the
  * `theme-flags` golden of the pinned CLI:
@@ -186,7 +191,7 @@ final class ThemeRegistry
      */
     public function has(string $namespace, string $key = ''): bool
     {
-        return isset($this->vars[self::name($namespace, $key)]);
+        return isset($this->vars[self::name($namespace, $key)]) && !ThemeNamespaces::isIgnored($namespace, $key);
     }
 
     /**
@@ -194,7 +199,7 @@ final class ThemeRegistry
      */
     public function resolve(string $namespace, string $key): ?ThemeValue
     {
-        return $this->get(self::name($namespace, $key));
+        return ThemeNamespaces::isIgnored($namespace, $key) ? null : $this->get(self::name($namespace, $key));
     }
 
     /**
@@ -203,6 +208,10 @@ final class ThemeRegistry
      */
     public function companion(string $namespace, string $key, string $suffix): ?ThemeValue
     {
+        if (ThemeNamespaces::isIgnored($namespace, $key)) {
+            return null;
+        }
+
         return $this->get(self::name($namespace, $key) . '--' . $suffix);
     }
 
@@ -227,8 +236,9 @@ final class ThemeRegistry
 
     /**
      * The keys of a namespace in definition order: `breakpoint` gives `sm`, `md`,
-     * … Companions (`xl--line-height`) and the bare namespace variable are not
-     * keys. Reference variables are listed, because they resolve.
+     * … Companions (`xl--line-height`), the bare namespace variable and the keys
+     * of an ignored sub-namespace (`font` has no `weight-bold`) are not keys.
+     * Reference variables are listed, because they resolve.
      *
      * @return list<string>
      */
@@ -251,7 +261,7 @@ final class ThemeRegistry
 
             $key = (string) \substr($name, $length);
 
-            if (\strpos($key, '--') === false) {
+            if (\strpos($key, '--') === false && !ThemeNamespaces::isIgnored($namespace, $key)) {
                 $keys[] = $key;
             }
         }

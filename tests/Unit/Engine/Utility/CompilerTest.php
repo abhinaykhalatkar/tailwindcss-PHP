@@ -678,6 +678,32 @@ final class CompilerTest extends TestCase
         self::assertLessThan(0.1, $elapsed, \sprintf('2 000 candidates took %.0f ms of CPU', $elapsed * 1000));
     }
 
+    /**
+     * A broader theme namespace never reaches a sub-namespace (v4's
+     * `ignoredThemeKeyMap`, TASK-0051): `font-weight-bold` is no font family
+     * and `text-shadow-sm` no font size, while `font-bold` and `text-sm` are
+     * what they were.
+     *
+     * @test
+     */
+    public function aBroaderNamespaceDoesNotSwallowASubNamespace(): void
+    {
+        $registry = Registry::default();
+        $theme = ThemeRegistry::fromDefault(DefaultTheme::vars(), DefaultTheme::keyframes());
+        $theme->merge(['--text-shadow-sm' => '0 1px 0 red', '--font-weight-bold' => '700'], ThemeFlags::none());
+
+        self::assertNull(self::css('font-weight-bold', $registry, $theme));
+        self::assertNull(self::css('font-weight-thin', $registry, $theme));
+        self::assertNull(self::css('text-shadow-sm', $registry, $theme));
+        self::assertNull(self::css('text-shadow-2xs', $registry, $theme));
+        self::assertSame(
+            '--tw-font-weight:var(--font-weight-bold);font-weight:var(--font-weight-bold)',
+            self::css('font-bold', $registry, $theme)
+        );
+        self::assertSame('font-family:var(--font-sans)', self::css('font-sans', $registry, $theme));
+        self::assertNotNull(self::css('text-sm', $registry, $theme));
+    }
+
     /** @test */
     public function everyLayoutRowIsValid(): void
     {
