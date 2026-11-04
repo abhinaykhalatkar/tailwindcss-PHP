@@ -91,7 +91,10 @@ final class SerializerTest extends TestCase
             'empty rule is dropped' => ['.a {}', ''],
             'empty rules between others are dropped' => ['.a{} .b{x:y} .c{}', '.b{x:y}'],
             'rule with only a comment is dropped' => ['.a { /* nothing */ }', ''],
-            'empty at-rule blocks are kept' => ['@layer base {}', '@layer base{}'],
+            'empty layer blocks are kept' => ['@layer base {}', '@layer base{}'],
+            'empty conditional blocks are dropped' => ['@media x { .a {} } @supports (y) {} .b{c:d}', '.b{c:d}'],
+            'nested empty conditional blocks are dropped' => ['@media x { @container y { .a {} } }', ''],
+            'empty font-face is kept' => ['@font-face {}', '@font-face{}'],
             'vendor pseudo-element is not merged' => [
                 '.a::-moz-placeholder{color:red}.a::placeholder{color:red}',
                 '.a::-moz-placeholder{color:red}.a::placeholder{color:red}',

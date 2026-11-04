@@ -117,6 +117,18 @@ final class NestingTest extends TestCase
                 '.a, .b { &p { color: red } }',
                 [['rule', 'p.a, p.b', [$red]]],
             ],
+            'type selector after the ampersand with a type parent' => [
+                'div { &span { color: red } }',
+                [['rule', 'span:is(div)', [$red]]],
+            ],
+            'type selector after the ampersand with a type-led compound parent' => [
+                'a.x { &span { color: red } }',
+                [['rule', 'span:is(a.x)', [$red]]],
+            ],
+            'type selector after the ampersand in a mixed parent list' => [
+                'div, .b { &p { color: red } }',
+                [['rule', 'p:is(div), p.b', [$red]]],
+            ],
             'ampersand inside a compound is left alone' => [
                 '.a { .x&.y { color: red } }',
                 [['rule', '.x.a.y', [$red]]],
@@ -283,19 +295,108 @@ final class NestingTest extends TestCase
     }
 
     /** @test */
-    public function aSelectorExactlyAtTheLimitIsKept(): void
+    public function aNestedSelectorExactlyAtTheLimitIsKept(): void
     {
         $bag = new DiagnosticBag();
-        $selector = '.' . \str_repeat('a', Nesting::MAX_SELECTOR_BYTES - 1);
-        $flat = Nesting::flatten(Parser::parse($selector . '{x:y}', $bag), $bag);
+        // `.p` + `:hover` + padding up to exactly the limit after nesting.
+        $tail = ':is(.' . \str_repeat('a', Nesting::MAX_SELECTOR_BYTES - 8) . ')';
+        $flat = Nesting::flatten(Parser::parse('.p{&' . $tail . '{x:y}}', $bag), $bag);
 
         self::assertSame([], $bag->toArray());
-        self::assertSame([['rule', $selector, [['decl', 'x', 'y', false]]]], AstDump::of($flat));
+        self::assertSame(Nesting::MAX_SELECTOR_BYTES, \strlen(AstDump::of($flat)[0][1]));
 
-        $over = Nesting::flatten(Parser::parse($selector . 'a{x:y}', $bag), $bag);
+        $over = Nesting::flatten(Parser::parse('.pp{&' . $tail . '{x:y}}', $bag), $bag);
 
         self::assertSame([], $over->nodes);
         self::assertCount(1, $bag);
+        self::assertStringContainsString('Selector too long after nesting', $bag->all()[0]->message());
+    }
+
+    /** @test */
+    public function topLevelSelectorsAreNotCapped(): void
+    {
+        $bag = new DiagnosticBag();
+        $long = '.' . \str_repeat('a', 9000);
+        $list = [];
+
+        for ($i = 0; $i < 3000; ++$i) {
+            $list[] = '.i' . $i;
+        }
+
+        $flat = Nesting::flatten(Parser::parse($long . '{x:y}' . \implode(',', $list) . '{x:y}', $bag), $bag);
+
+        self::assertSame([], $bag->toArray());
+        self::assertCount(2, $flat->nodes);
+        self::assertSame($long, AstDump::of($flat)[0][1]);
+    }
+
+    /** @test */
+    public function manyChildrenOfALongSelectorStopAtTheOutputBudget(): void
+    {
+        $bag = new DiagnosticBag();
+        $css = '.' . \str_repeat('a', 8000) . '{' . \str_repeat('b{c:d}', 2000) . '}';
+        $flat = Nesting::flatten(Parser::parse($css, $bag), $bag);
+
+        self::assertCount(1, $bag);
+        self::assertStringContainsString('Nesting output too large', $bag->all()[0]->message());
+        self::assertLessThanOrEqual(Nesting::MAX_OUTPUT_BYTES + 16384, \strlen(Serializer::compact($flat)));
+    }
+
+    /**
+     * @test
+     *
+     * @dataProvider pseudoElementBranches
+     *
+     * @param list<array<int, mixed>> $expected
+     */
+    public function branchesThatCanNeverMatchAreDropped(string $css, array $expected, int $diagnostics): void
+    {
+        $bag = new DiagnosticBag();
+        $flat = Nesting::flatten(Parser::parse($css, $bag), $bag);
+
+        self::assertSame($expected, AstDump::of($flat));
+        self::assertCount($diagnostics, $bag);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: list<array<int, mixed>>, 2: int}>
+     */
+    public static function pseudoElementBranches(): array
+    {
+        $red = ['decl', 'color', 'red', false];
+
+        return [
+            'descendant after a pseudo-element in a list' => [
+                '.a::before, .b { c { color: red } }',
+                [['rule', '.b c', [$red]]],
+                1,
+            ],
+            'two ampersands after a pseudo-element in a list' => [
+                '.a::before, .b { & + & { color: red } }',
+                [['rule', '.b + .b', [$red]]],
+                1,
+            ],
+            'pseudo-class after a pseudo-element is fine' => [
+                '.a::before, .b { &:hover { color: red } }',
+                [['rule', '.a::before:hover, .b:hover', [$red]]],
+                0,
+            ],
+            'ampersand alone after a pseudo-element is fine' => [
+                '.a::before { & { color: red } }',
+                [['rule', '.a::before', [$red]]],
+                0,
+            ],
+            'a single pseudo-element parent with a descendant child' => [
+                '.a::after { b { color: red } }',
+                [],
+                1,
+            ],
+            'a second pseudo-element after a pseudo-element' => [
+                '.a::before { &::after { color: red } }',
+                [],
+                1,
+            ],
+        ];
     }
 
     /** @test */

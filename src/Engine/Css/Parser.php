@@ -56,6 +56,13 @@ final class Parser
     public const MAX_NODES = 100000;
 
     /**
+     * Most tokens one selector, prelude or declaration may hold (ENG-A14):
+     * every token of a construct is kept until its terminator is seen, so
+     * this bounds the parser's working memory.
+     */
+    public const MAX_CONSTRUCT_TOKENS = 50000;
+
+    /**
      * @var int
      */
     private $nodeCount = 0;
@@ -208,6 +215,12 @@ final class Parser
         $params = self::join($prelude[0], $prelude[1], 0, \count($prelude[0]) - 1);
 
         if ($terminator->type === Token::LEFT_BRACE) {
+            if ($prelude[5]) {
+                $this->skipBlock();
+
+                return null;
+            }
+
             $children = $this->block($level, $terminator);
 
             if ($children === null || $prelude[3] || !$this->admit($at)) {
@@ -244,6 +257,12 @@ final class Parser
         $terminator = $parts[2];
 
         if ($terminator->type === Token::LEFT_BRACE) {
+            if ($parts[5]) {
+                $this->skipBlock();
+
+                return null;
+            }
+
             $children = $this->block($level, $terminator);
 
             if ($children === null || $parts[3]) {
@@ -338,10 +357,11 @@ final class Parser
      * inside them is just a token (CSS Syntax §5.4.7 simple blocks).
      *
      * Returns the raw texts, the token types, the terminator, whether a
-     * bad-string/bad-url was seen, and the index of the first top-level
-     * colon (-1 if none).
+     * bad-string/bad-url was seen, the index of the first top-level colon
+     * (-1 if none), and whether the construct was too long to keep (then the
+     * texts are empty and the construct counts as invalid).
      *
-     * @return array{0: list<string>, 1: list<string>, 2: Token, 3: bool, 4: int}
+     * @return array{0: list<string>, 1: list<string>, 2: Token, 3: bool, 4: int, 5: bool}
      */
     private function collect(Token $token, bool $declarationContext): array
     {
@@ -349,6 +369,7 @@ final class Parser
         // through next()/raw() (nothing sets $this->pending while collecting).
         $tokenizer = $this->tokenizer;
         $source = $tokenizer->source();
+        $first = $token;
         $raws = [];
         $types = [];
         $stack = [];
@@ -368,18 +389,29 @@ final class Parser
                 break;
             }
 
-            // A comment sat between the previous token and this one: keep
-            // them apart (ENG-A14), or `1px` and `2px` with a comment between
-            // them would become one value. Done first so the colon index
-            // below stays right. Tokens are otherwise contiguous.
-            $commentGap = $token->start > $previousEnd
-                && $type !== Token::WHITESPACE
-                && $raws !== []
-                && $types[\count($types) - 1] !== Token::WHITESPACE;
+            if (\count($raws) >= self::MAX_CONSTRUCT_TOKENS) {
+                // Too long to keep (ENG-A14): free what was stored and only
+                // find the terminator from here on, in constant memory.
+                $this->report(
+                    \sprintf('Construct too long (more than %d tokens); dropped', self::MAX_CONSTRUCT_TOKENS),
+                    $first
+                );
 
-            if ($commentGap) {
-                $raws[] = ' ';
-                $types[] = Token::WHITESPACE;
+                return [[], [], $this->skipConstruct($token, \count($stack), $custom), true, -1, true];
+            }
+
+            // A comment sat between the previous token and this one. CSS
+            // drops comments, so normally nothing is needed — but where the
+            // two tokens would otherwise read as one (`1px` + `2px`, `a` +
+            // `b`), one space keeps them apart (CSS Syntax §9, ENG-A14).
+            // Done first so the colon index below stays right.
+            if ($token->start > $previousEnd && $raws !== []) {
+                $last = \count($raws) - 1;
+
+                if (self::wouldMerge($types[$last], $raws[$last], $type, $token)) {
+                    $raws[] = ' ';
+                    $types[] = Token::WHITESPACE;
+                }
             }
 
             if ($stack === []) {
@@ -440,7 +472,94 @@ final class Parser
             $token = $tokenizer->next();
         }
 
-        return [$raws, $types, $token, $invalid, $colon];
+        return [$raws, $types, $token, $invalid, $colon, false];
+    }
+
+    /**
+     * Read on from $token to the terminator of a construct that was too long
+     * to keep, storing nothing: bracket nesting is tracked as a single depth
+     * counter, starting from the $depth already open.
+     */
+    private function skipConstruct(Token $token, int $depth, bool $custom): Token
+    {
+        $tokenizer = $this->tokenizer;
+
+        while (true) {
+            $type = $token->type;
+
+            if ($type === Token::EOF) {
+                return $token;
+            }
+
+            if ($depth === 0) {
+                if ($type === Token::SEMICOLON || $type === Token::RIGHT_BRACE) {
+                    return $token;
+                }
+
+                if ($type === Token::LEFT_BRACE && !$custom) {
+                    return $token;
+                }
+            }
+
+            $opens = $type === Token::FUNCTION_TOKEN || $type === Token::LEFT_PAREN
+                || $type === Token::LEFT_BRACKET || $type === Token::LEFT_BRACE;
+            $closes = $type === Token::RIGHT_PAREN || $type === Token::RIGHT_BRACKET
+                || $type === Token::RIGHT_BRACE;
+
+            if ($opens) {
+                ++$depth;
+            } elseif ($closes && $depth > 0) {
+                --$depth;
+            }
+
+            $token = $tokenizer->next();
+        }
+    }
+
+    /**
+     * Whether a token of type $previousType (raw text $previousRaw) directly
+     * followed by $next would be read as one token — the pairs CSS Syntax §9
+     * says need a comment between them when serialized. Only those pairs get
+     * a space where a comment separated them; `a/**\/.b` stays `a.b`.
+     */
+    private static function wouldMerge(string $previousType, string $previousRaw, string $nextType, Token $next): bool
+    {
+        $nextIdentLike = $nextType === Token::IDENT || $nextType === Token::FUNCTION_TOKEN
+            || $nextType === Token::URL || $nextType === Token::BAD_URL;
+        $nextNumeric = $nextType === Token::NUMBER || $nextType === Token::PERCENTAGE
+            || $nextType === Token::DIMENSION;
+        $nextDelim = $nextType === Token::DELIM ? $next->value : '';
+        $nextCdc = $nextType === Token::CDC;
+
+        switch ($previousType) {
+            case Token::IDENT:
+                return $nextIdentLike || $nextNumeric || $nextDelim === '-' || $nextCdc
+                    || $nextType === Token::LEFT_PAREN;
+            case Token::AT_KEYWORD:
+            case Token::HASH:
+            case Token::DIMENSION:
+                return $nextIdentLike || $nextNumeric || $nextDelim === '-' || $nextCdc;
+            case Token::NUMBER:
+                return $nextIdentLike || $nextNumeric || $nextDelim === '%';
+            case Token::DELIM:
+                switch ($previousRaw) {
+                    case '#':
+                        return $nextIdentLike || $nextNumeric || $nextDelim === '-';
+                    case '-':
+                        return $nextIdentLike || $nextNumeric || $nextDelim === '-' || $nextCdc;
+                    case '@':
+                        return $nextIdentLike || $nextDelim === '-' || $nextCdc;
+                    case '.':
+                    case '+':
+                        return $nextNumeric;
+                    case '/':
+                        return $nextDelim === '*';
+                }
+
+                return false;
+        }
+
+        return false;
     }
 
     /**
@@ -460,8 +579,18 @@ final class Parser
             $open
         );
 
-        // Iterative on purpose: a hostile file may nest far deeper than any
-        // recursion limit.
+        $this->skipBlock();
+
+        return null;
+    }
+
+    /**
+     * Consume a block whose `{` was just read, up to its matching `}`,
+     * creating nothing. Iterative on purpose: a hostile file may nest far
+     * deeper than any recursion limit.
+     */
+    private function skipBlock(): void
+    {
         $depth = 1;
 
         while (true) {
@@ -470,13 +599,13 @@ final class Parser
             if ($token->type === Token::EOF) {
                 $this->pending = $token;
 
-                return null;
+                return;
             }
 
             if ($token->type === Token::LEFT_BRACE) {
                 ++$depth;
             } elseif ($token->type === Token::RIGHT_BRACE && --$depth === 0) {
-                return null;
+                return;
             }
         }
     }

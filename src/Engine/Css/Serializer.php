@@ -66,6 +66,20 @@ final class Serializer
         '-ms-flex' => true,
     ];
 
+    /**
+     * Conditional group rules that compact output drops when their block is
+     * empty.
+     *
+     * @var array<string, true>
+     */
+    private const DROPPABLE_WHEN_EMPTY = [
+        'media' => true,
+        'supports' => true,
+        'container' => true,
+        'starting-style' => true,
+        'scope' => true,
+    ];
+
     private function __construct()
     {
     }
@@ -221,10 +235,16 @@ final class Serializer
 
             if ($node instanceof AtRule) {
                 $head = '@' . $node->name . ($node->params === '' ? '' : ' ' . self::minifyTokens($node->params, null));
+                $body = $node->nodes === null ? null : self::compactBlock($node->nodes, $level + 1);
+
+                // An empty conditional block emits nothing (as the CLI does);
+                // an empty `@layer` block still fixes the layer order, so stays.
+                if ($body === '' && isset(self::DROPPABLE_WHEN_EMPTY[\strtolower($node->name)])) {
+                    continue;
+                }
+
                 $kinds[] = 'other';
-                $texts[] = $node->nodes === null
-                    ? $head . ';'
-                    : $head . '{' . self::compactBlock($node->nodes, $level + 1) . '}';
+                $texts[] = $body === null ? $head . ';' : $head . '{' . $body . '}';
 
                 continue;
             }

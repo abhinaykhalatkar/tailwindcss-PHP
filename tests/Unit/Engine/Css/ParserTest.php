@@ -189,6 +189,35 @@ final class ParserTest extends TestCase
                 'a{color:/**/red}',
                 [['rule', 'a', [['decl', 'color', 'red', false]]]],
             ],
+            // A comment is not whitespace: only token pairs that would merge get one.
+            'comment between a type and a class stays a compound' => [
+                'a/**/.b{x:y}',
+                [['rule', 'a.b', [['decl', 'x', 'y', false]]]],
+            ],
+            'comment before a pseudo-class stays a compound' => [
+                '.x/**/:hover{x:y}',
+                [['rule', '.x:hover', [['decl', 'x', 'y', false]]]],
+            ],
+            'comment before a pseudo-element stays a compound' => [
+                'a/**/::before{x:y}',
+                [['rule', 'a::before', [['decl', 'x', 'y', false]]]],
+            ],
+            'comment between attribute selectors stays a compound' => [
+                '[x]/**/[y]{a:b}',
+                [['rule', '[x][y]', [['decl', 'a', 'b', false]]]],
+            ],
+            'comment between a hash and an ident' => [
+                'a{color:#fff/**/x}',
+                [['rule', 'a', [['decl', 'color', '#fff x', false]]]],
+            ],
+            'comment between a number and a percent sign' => [
+                'a{x:1/**/%}',
+                [['rule', 'a', [['decl', 'x', '1 %', false]]]],
+            ],
+            'comment between a comma and a value' => [
+                'a{x:1,/**/2}',
+                [['rule', 'a', [['decl', 'x', '1,2', false]]]],
+            ],
             'comment next to whitespace adds nothing' => [
                 'a{margin:1px /**/ 2px}',
                 [['rule', 'a', [['decl', 'margin', '1px  2px', false]]]],

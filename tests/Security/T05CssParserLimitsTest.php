@@ -65,7 +65,9 @@ final class T05CssParserLimitsTest extends TestCase
         // Parser and flattener each cap their own diagnostics.
         self::assertLessThanOrEqual(2 * (Tokenizer::MAX_DIAGNOSTICS + 1), \count($bag));
         // Output stays linear in the input: no level of nesting may multiply it.
-        $bound = 8 * \strlen($css) + 64 * 1024;
+        // Nesting may emit up to its output budget on top of the authored
+        // CSS (ENG-A14), but never more.
+        $bound = Nesting::MAX_OUTPUT_BYTES + 8 * \strlen($css) + 64 * 1024;
         self::assertLessThan($bound, \strlen($pretty), 'pretty output is bounded');
         self::assertLessThan($bound, \strlen($compact), 'compact output is bounded');
         self::assertLessThan(
@@ -117,7 +119,109 @@ final class T05CssParserLimitsTest extends TestCase
             'a long parent list with nested lists' => [
                 self::parentsWithChildren(1000, 1) . \str_repeat('.x,.y{', 10) . 'c:d' . \str_repeat('}', 10),
             ],
+
+            // TASK-0024 round-2 verifier probes (ENG-A14 amended): the total
+            // output of nesting, not just each selector, must be bounded.
+            '2 000 children of an 8 KB selector' => [self::longParent() . '{' . \str_repeat('b{c:d}', 2000) . '}'],
+            '30 000 children of an 8 KB selector' => [self::longParent() . '{' . \str_repeat('b{c:d}', 30000) . '}'],
+            '1 600 simple parents with 30 000 children' => [self::parentsWithChildren(1600, 30000, '&:x{c:d}')],
+            'a complex parent list with 30 000 children' => [self::complexParentsWithChildren(500, 30000)],
+            '30 000 media blocks under an 8 KB selector' => [
+                self::longParent() . '{' . \str_repeat('@media x{c:d}', 30000) . '}',
+            ],
+            '40 000 declaration chunks under an 8 KB selector' => [
+                self::longParent() . '{' . \str_repeat('c:d;x{}', 40000) . '}',
+            ],
         ];
+    }
+
+    /**
+     * Constructs too long to keep in memory (ENG-A14): each 2 MB input used
+     * to need a 64 MB allocation and failed at PHP's default 128 MB. Each
+     * now ends with exactly one diagnostic, in a few megabytes.
+     *
+     * @test
+     *
+     * @dataProvider longConstructs
+     */
+    public function aConstructPastTheTokenLimitIsDroppedInConstantMemory(string $css): void
+    {
+        $bag = new DiagnosticBag();
+        $resetPeak = \function_exists('memory_reset_peak_usage');
+        $collecting = \gc_enabled();
+        \gc_disable();
+
+        try {
+            if ($resetPeak) {
+                \memory_reset_peak_usage();
+            }
+
+            $before = \memory_get_usage();
+            $started = self::cpuSeconds();
+            $sheet = Parser::parse($css, $bag);
+            $elapsed = self::cpuSeconds() - $started;
+            $retained = \memory_get_usage() - $before;
+            $peak = \memory_get_peak_usage() - $before;
+        } finally {
+            if ($collecting) {
+                \gc_enable();
+            }
+        }
+
+        self::assertCount(1, $bag);
+        self::assertStringContainsString('Construct too long', $bag->all()[0]->message());
+        // The construct is gone; an enclosing rule (the declaration cases)
+        // survives empty.
+        self::assertContains(AstDump::of($sheet), [[], [['rule', 'x', []]]]);
+        self::assertLessThan(32 * 1024 * 1024, $retained);
+
+        // Measured on this host: peak 2–4.2 MB above the baseline.
+        if ($resetPeak) {
+            self::assertLessThan(32 * 1024 * 1024, $peak, \sprintf('peak %.1f MB', $peak / 1048576));
+        }
+
+        // Informational: two million tokens are still read (≈ 2–5 s here).
+        self::assertLessThan(20.0, $elapsed, \sprintf('%.2f s of CPU', $elapsed));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function longConstructs(): array
+    {
+        $twoMegabytes = 2 * 1024 * 1024;
+
+        return [
+            'a 2 MB selector list' => [\str_repeat('a,', $twoMegabytes / 2) . '{x:y}'],
+            'a 2 MB declaration value' => ['x{b:' . \str_repeat('c ', $twoMegabytes / 2) . '}'],
+            'a 2 MB custom property of empty blocks' => ['x{--x:' . \str_repeat('{}', $twoMegabytes / 2) . '}'],
+            'a 2 MB custom property nested 30 deep' => [
+                'x{--x:' . \str_repeat(\str_repeat('{', 30) . \str_repeat('}', 30), (int) ($twoMegabytes / 60)) . '}',
+            ],
+        ];
+    }
+
+    /**
+     * An 8 KB class selector.
+     */
+    private static function longParent(): string
+    {
+        return '.' . \str_repeat('a', 8000);
+    }
+
+    /**
+     * $parents complex selectors (just under the selector limit together)
+     * with $children `&:x` rules.
+     */
+    private static function complexParentsWithChildren(int $parents, int $children): string
+    {
+        $list = [];
+
+        for ($i = 0; $i < $parents; ++$i) {
+            $list[] = '.a .q' . $i;
+        }
+
+        return \implode(',', $list) . '{' . \str_repeat('&:x{c:d}', $children) . '}';
     }
 
     /**
@@ -158,7 +262,7 @@ final class T05CssParserLimitsTest extends TestCase
     /**
      * A rule with $parents simple selectors and $children `&:hover` rules.
      */
-    private static function parentsWithChildren(int $parents, int $children): string
+    private static function parentsWithChildren(int $parents, int $children, string $child = '&:hover{c:d}'): string
     {
         $list = [];
 
@@ -166,7 +270,7 @@ final class T05CssParserLimitsTest extends TestCase
             $list[] = '.p' . $i;
         }
 
-        return \implode(',', $list) . '{' . \str_repeat('&:hover{c:d}', $children) . '}';
+        return \implode(',', $list) . '{' . \str_repeat($child, $children) . '}';
     }
 
     /**

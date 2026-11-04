@@ -19,12 +19,18 @@ use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
  *   replaced by the parent selector, and a selector without `&` is a
  *   descendant (`.b` inside `.a` → `.a .b`, `> .b` → `.a > .b`). A type
  *   selector written right after `&` moves in front of it (`&div` in `.a` →
- *   `div.a`; with a complex parent, `div:is(.a .b)`).
+ *   `div.a`); when the parent is complex or itself starts with a type
+ *   selector, the parent is wrapped (`div:is(.a .b)`, `span:is(div)`).
+ *   `&-x`, `&_x` and namespaced types (`&svg|a`) are not rewritten.
  * - A parent *list* is expanded per selector when every parent is simple
  *   (`.a, .b { &:hover }` → `.a:hover, .b:hover`) or when any parent has a
  *   pseudo-element (`:is()` cannot hold one). When a parent is complex (a
  *   combinator), or the child uses `&` more than once, the list is wrapped in
  *   `:is()` instead, which keeps the meaning.
+ * - After a pseudo-element only pseudo-classes may follow, so a branch such
+ *   as `.a::before b` can never match — and one invalid selector in a list
+ *   makes a browser drop the whole rule. Such branches are dropped (the
+ *   valid ones stay) with one diagnostic per rule.
  * - Declarations keep their order relative to nested rules: the
  *   declarations between two nested rules become their own rule with the
  *   parent selector (CSS Nesting §2.3, nested declarations).
@@ -35,13 +41,16 @@ use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
  * - A top-level `&` means the scoping root and becomes `:scope`.
  * - Rules left without declarations are dropped.
  *
- * The output contains no `&` and no rule inside a rule. Two bounds keep the
+ * The output contains no `&` and no rule inside a rule. Three bounds keep the
  * work and the output linear in the input (threat T-05, ENG-A14): recursion
- * follows the tree and stops at {@see Parser::MAX_DEPTH}, and a resolved
- * selector may not exceed {@see self::MAX_SELECTOR_BYTES} — otherwise `& &`
- * chains or long parent lists would double the selector at every level. A
- * subtree over either bound is dropped with an `E_CSS_SYNTAX` diagnostic
- * (capped like the parser's). The input tree is never modified.
+ * stops at {@see Parser::MAX_DEPTH}; a selector that nesting expands may not
+ * exceed {@see self::MAX_SELECTOR_BYTES} (otherwise `& &` chains or long
+ * parent lists would double it at every level); and all selectors resolved
+ * or emitted plus all at-rule preludes together may not exceed
+ * {@see self::MAX_OUTPUT_BYTES} — many children of one long selector would
+ * otherwise repeat it without limit. Past the first two a subtree is dropped;
+ * past the budget the walk stops altogether. Each case is one `E_CSS_SYNTAX`
+ * diagnostic (capped like the parser's). The input tree is never modified.
  */
 final class Nesting
 {
@@ -49,6 +58,12 @@ final class Nesting
      * Longest selector a nested rule may resolve to (ENG-A14).
      */
     public const MAX_SELECTOR_BYTES = 8192;
+
+    /**
+     * Total bytes of selectors and at-rule preludes one flatten may produce
+     * (ENG-A14, amended) — the design doc 07 input cap.
+     */
+    public const MAX_OUTPUT_BYTES = 4194304;
 
     /**
      * At-rules whose block carries the enclosing rule's selector into it.
@@ -74,6 +89,16 @@ final class Nesting
      */
     private $reported = 0;
 
+    /**
+     * @var int Bytes left of {@see self::MAX_OUTPUT_BYTES}.
+     */
+    private $budget = self::MAX_OUTPUT_BYTES;
+
+    /**
+     * @var bool True once the budget ran out.
+     */
+    private $stopped = false;
+
     private function __construct(?DiagnosticBag $diagnostics)
     {
         $this->diagnostics = $diagnostics;
@@ -93,10 +118,11 @@ final class Nesting
      *
      * $context describes the enclosing rule — its resolved selector, the
      * parts of it, whether any part is complex, whether any has a
-     * pseudo-element, and its `:is()` form — or is null outside any rule.
+     * pseudo-element, its `:is()` form, and per part whether it has a
+     * pseudo-element — or is null outside any rule.
      *
      * @param list<Node> $nodes The block's contents.
-     * @param array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string}|null $context
+     * @param array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string, 5: list<bool>, 6: int}|null $context
      * @param Rule|null $origin The rule $nodes came from, for positions.
      * @param int $level Blocks around $nodes.
      * @param list<Node> $out
@@ -106,14 +132,18 @@ final class Nesting
         $chunk = [];
 
         foreach ($nodes as $node) {
+            if ($this->stopped) {
+                return;
+            }
+
             if ($node instanceof Rule) {
-                self::flush($context, $origin, $chunk, $out);
+                $this->flush($context, $origin, $chunk, $out);
 
                 if (!$this->enter($level, $node->line)) {
                     continue;
                 }
 
-                $resolved = self::resolve($node->selector, $context);
+                $resolved = $this->resolve($node->selector, $context, $node->line);
 
                 if ($resolved === null) {
                     $this->report(
@@ -127,28 +157,42 @@ final class Nesting
                     continue;
                 }
 
-                $this->walk($node->nodes, self::context($resolved), $node, $level + 1, $out);
+                if ($resolved === []) {
+                    continue;
+                }
+
+                $child = self::context($resolved);
+
+                if ($this->charge(\strlen($child[0]), $node->line)) {
+                    $this->walk($node->nodes, $child, $node, $level + 1, $out);
+                }
 
                 continue;
             }
 
             if ($node instanceof AtRule && $node->nodes !== null) {
-                self::flush($context, $origin, $chunk, $out);
+                $this->flush($context, $origin, $chunk, $out);
 
-                if ($this->enter($level, $node->line)) {
-                    $conditional = isset(self::CONDITIONAL[\strtolower($node->name)]);
-                    $inner = [];
-
-                    $this->walk(
-                        $node->nodes,
-                        $conditional ? $context : null,
-                        $conditional ? $origin : null,
-                        $level + 1,
-                        $inner
-                    );
-
-                    $out[] = new AtRule($node->name, $node->params, $inner, $node->line, $node->col);
+                if (!$this->enter($level, $node->line)) {
+                    continue;
                 }
+
+                if (!$this->charge(\strlen($node->name) + \strlen($node->params), $node->line)) {
+                    return;
+                }
+
+                $conditional = isset(self::CONDITIONAL[\strtolower($node->name)]);
+                $inner = [];
+
+                $this->walk(
+                    $node->nodes,
+                    $conditional ? $context : null,
+                    $conditional ? $origin : null,
+                    $level + 1,
+                    $inner
+                );
+
+                $out[] = new AtRule($node->name, $node->params, $inner, $node->line, $node->col);
 
                 continue;
             }
@@ -160,26 +204,55 @@ final class Nesting
             }
         }
 
-        self::flush($context, $origin, $chunk, $out);
+        $this->flush($context, $origin, $chunk, $out);
     }
 
     /**
-     * Emit the declarations collected for the enclosing rule, if any.
+     * Emit the declarations collected for the enclosing rule, if any — each
+     * emission repeats the rule's selector, so it is charged to the budget.
      *
-     * @param array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string}|null $context
+     * @param array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string, 5: list<bool>, 6: int}|null $context
      * @param list<Node> $chunk
      * @param list<Node> $out
      */
-    private static function flush(?array $context, ?Rule $origin, array &$chunk, array &$out): void
+    private function flush(?array $context, ?Rule $origin, array &$chunk, array &$out): void
     {
         if ($context === null || $chunk === []) {
             return;
         }
 
-        $out[] = $origin === null
-            ? new Rule($context[0], $chunk)
-            : new Rule($context[0], $chunk, $origin->line, $origin->col);
+        if ($this->charge(\strlen($context[0]), $origin === null ? null : $origin->line)) {
+            $out[] = $origin === null
+                ? new Rule($context[0], $chunk)
+                : new Rule($context[0], $chunk, $origin->line, $origin->col);
+        }
+
         $chunk = [];
+    }
+
+    /**
+     * Take $bytes from the output budget; false (once reported) when it is
+     * spent, after which nothing more is emitted.
+     */
+    private function charge(int $bytes, ?int $line): bool
+    {
+        if ($this->stopped) {
+            return false;
+        }
+
+        $this->budget -= $bytes;
+
+        if ($this->budget >= 0) {
+            return true;
+        }
+
+        $this->stopped = true;
+        $this->report(
+            \sprintf('Nesting output too large (more than %d bytes); the rest is dropped.', self::MAX_OUTPUT_BYTES),
+            $line
+        );
+
+        return false;
     }
 
     /**
@@ -220,50 +293,63 @@ final class Nesting
      *
      * @param list<string> $parents
      *
-     * @return array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string}
+     * @return array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string, 5: list<bool>, 6: int}
      */
     private static function context(array $parents): array
     {
         $complex = false;
-        $pseudoElement = false;
+        $pseudoElements = [];
 
         foreach ($parents as $parent) {
             $complex = $complex || SelectorList::isComplex($parent);
-            $pseudoElement = $pseudoElement || SelectorList::hasPseudoElement($parent);
+            $pseudoElements[] = SelectorList::hasPseudoElement($parent);
         }
 
         $joined = \implode(', ', $parents);
 
-        return [$joined, $parents, $complex, $pseudoElement, ':is(' . $joined . ')'];
+        // Sum of the parts' lengths: with it, the size of a per-selector
+        // expansion is known before building it.
+        $partBytes = \strlen($joined) - 2 * (\count($parents) - 1);
+
+        return [
+            $joined,
+            $parents,
+            $complex,
+            \in_array(true, $pseudoElements, true),
+            ':is(' . $joined . ')',
+            $pseudoElements,
+            $partBytes,
+        ];
     }
 
     /**
-     * Resolve a rule's selector against its enclosing rule, or null when the
-     * result would exceed {@see self::MAX_SELECTOR_BYTES}. The size is
-     * checked before each part is built, so an oversized selector is never
-     * materialised.
+     * Resolve a rule's selector against its enclosing rule: the resolved
+     * parts (empty when every branch was invalid), or null when nesting would
+     * make it longer than {@see self::MAX_SELECTOR_BYTES}. The size is checked
+     * before each part is built, so an oversized selector is never
+     * materialised. A top-level selector is not nested, so it is not capped.
      *
-     * @param array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string}|null $context
+     * @param array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string, 5: list<bool>, 6: int}|null $context
      *
      * @return list<string>|null
      */
-    private static function resolve(string $selector, ?array $context): ?array
+    private function resolve(string $selector, ?array $context, ?int $line): ?array
     {
         $resolved = [];
-        $bytes = 0;
 
-        foreach (SelectorList::split($selector) as $child) {
-            if ($context === null) {
-                if (!self::fits($bytes, $child, SelectorList::countAmpersands($child), ':scope')) {
-                    return null;
-                }
-
+        if ($context === null) {
+            foreach (SelectorList::split($selector) as $child) {
                 $resolved[] = SelectorList::replaceAmpersand($child, ':scope');
-
-                continue;
             }
 
-            $parents = $context[1];
+            return $resolved;
+        }
+
+        $bytes = 0;
+        $droppedBranch = false;
+        $parents = $context[1];
+
+        foreach (SelectorList::split($selector) as $child) {
             $hoisted = SelectorList::hoistTypeSelectors($child);
             $typed = $hoisted !== $child;
             $child = $hoisted;
@@ -274,18 +360,40 @@ final class Nesting
                 $count = 1;
             }
 
-            if (\count($parents) === 1) {
-                // A type selector now sits in front of `&`; a complex parent
-                // must be wrapped so the type applies to the whole of it.
-                $replacement = $typed && $context[2] ? ':is(' . $parents[0] . ')' : $parents[0];
-                $replacements = [$replacement];
-            } elseif (!$context[3] && ($context[2] || $count > 1)) {
-                $replacements = [$context[4]];
-            } else {
-                $replacements = $parents;
+            if (\count($parents) !== 1 && !$context[3] && ($context[2] || $count > 1)) {
+                if (!self::fits($bytes, $child, $count, $context[4])) {
+                    return null;
+                }
+
+                $resolved[] = SelectorList::replaceAmpersand($child, $context[4]);
+
+                continue;
             }
 
-            foreach ($replacements as $replacement) {
+            // Without pseudo-element parents every branch is kept, so the
+            // expansion's size is known up front (a lower bound when a typed
+            // child wraps parents in `:is()`): refuse in O(1) rather than
+            // building part after part of a huge list.
+            $expanded = \count($parents) * (\strlen($child) - $count) + $count * $context[6]
+                + 2 * (\count($parents) - 1);
+
+            if (!$context[3] && $bytes + $expanded > self::MAX_SELECTOR_BYTES) {
+                return null;
+            }
+
+            foreach ($parents as $index => $parent) {
+                if ($context[5][$index] && !self::followsPseudoElement($child)) {
+                    $droppedBranch = true;
+
+                    continue;
+                }
+
+                // A type selector now sits in front of `&`; a parent that is
+                // complex or starts with its own type must be wrapped.
+                $replacement = $typed && (SelectorList::isComplex($parent) || self::startsWithType($parent))
+                    ? ':is(' . $parent . ')'
+                    : $parent;
+
                 if (!self::fits($bytes, $child, $count, $replacement)) {
                     return null;
                 }
@@ -294,7 +402,49 @@ final class Nesting
             }
         }
 
+        if ($droppedBranch) {
+            $this->report(
+                'A nested selector after a pseudo-element can never match; that part is dropped.',
+                $line
+            );
+        }
+
         return $resolved;
+    }
+
+    /**
+     * Whether $child is valid after a pseudo-element parent: `&` alone or
+     * followed only by pseudo-classes (`&:hover`), nothing else.
+     */
+    private static function followsPseudoElement(string $child): bool
+    {
+        if ($child === '' || $child[0] !== '&' || SelectorList::countAmpersands($child) !== 1) {
+            return false;
+        }
+
+        $rest = (string) \substr($child, 1);
+
+        if ($rest === '') {
+            return true;
+        }
+
+        return $rest[0] === ':'
+            && (\strlen($rest) < 2 || $rest[1] !== ':')
+            && !SelectorList::isComplex($rest);
+    }
+
+    /**
+     * Whether $selector begins with a type or universal selector.
+     */
+    private static function startsWithType(string $selector): bool
+    {
+        if ($selector === '') {
+            return false;
+        }
+
+        $o = \ord($selector[0]);
+
+        return ($o >= 97 && $o <= 122) || ($o >= 65 && $o <= 90) || $o >= 128 || $o === 42 || $o === 124;
     }
 
     /**

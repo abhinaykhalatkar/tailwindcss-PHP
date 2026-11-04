@@ -60,7 +60,12 @@ final class RoundTripTest extends TestCase
         $bag = new DiagnosticBag();
         $flat = Nesting::flatten(self::parseClean($css), $bag);
 
-        self::assertSame([], $bag->toArray());
+        // The generator nests children under `.x::before`; dropping the
+        // branches that can never match is the only diagnostic allowed.
+        foreach ($bag->all() as $diagnostic) {
+            self::assertStringContainsString('after a pseudo-element', $diagnostic->message());
+        }
+
         self::assertNoNesting($flat->nodes, false);
         self::assertSame(AstDump::of($flat), AstDump::of(self::parseClean(Serializer::pretty($flat))));
     }
