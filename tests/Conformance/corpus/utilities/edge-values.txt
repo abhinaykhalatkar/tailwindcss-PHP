@@ -106,3 +106,7 @@ text-balance
 font-sans
 font-thin
 font-black
+
+# container: a T1 root with no row in doc 08 until its M2 corrections; the CLI emits the width and one @media block per breakpoint
+container
+md:container

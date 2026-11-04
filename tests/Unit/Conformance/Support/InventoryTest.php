@@ -23,7 +23,7 @@ final class InventoryTest extends TestCase
     /**
      * The per-family counts, from design doc 08 §Utilities (T1 rows only).
      *
-     * layout                            doc 08 §Layout, plus `flex` (first mentioned there)
+     * layout                            doc 08 §Layout, plus `flex` and `container` (doc 08 §Corrections from M2)
      * flexbox-grid                      doc 08 §Flexbox & Grid
      * spacing-sizing                    doc 08 §Spacing & Sizing
      * typography                        doc 08 §Typography
@@ -34,7 +34,7 @@ final class InventoryTest extends TestCase
      * arbitrary-property                doc 08 §Arbitrary property `[prop:value]`
      */
     private const COUNTS = [
-        'layout' => 59,
+        'layout' => 60,
         'flexbox-grid' => 36,
         'spacing-sizing' => 29,
         'typography' => 46,
@@ -45,7 +45,7 @@ final class InventoryTest extends TestCase
         'arbitrary-property' => 1,
     ];
 
-    private const TOTAL = 292;
+    private const TOTAL = 293;
 
     private const KEYS = [
         'family', 'kind', 'theme', 'bare', 'fraction', 'negative', 'arbitrary', 'modifier', 'tier', 'forms',
@@ -269,6 +269,21 @@ final class InventoryTest extends TestCase
         return [
             'a plain static' => ['hidden', ['kind' => 'static', 'family' => 'layout']],
             'accessibility static' => ['sr-only', ['kind' => 'static', 'family' => 'layout']],
+            'container is a layout static the CLI accepts although doc 08 had no row' => [
+                'container',
+                [
+                    'kind' => 'static',
+                    'family' => 'layout',
+                    'theme' => [],
+                    'bare' => null,
+                    'fraction' => false,
+                    'negative' => false,
+                    'arbitrary' => false,
+                    'modifier' => null,
+                    'tier' => 'T1',
+                    'forms' => ['static', 'important'],
+                ],
+            ],
             'flex is layout, functional and valid alone' => [
                 'flex',
                 ['kind' => 'functional', 'family' => 'layout', 'fraction' => true, 'bare' => 'integer'],

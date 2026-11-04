@@ -57,7 +57,20 @@
 declare(strict_types=1);
 
 return [
-    // layout (59)
+    // layout (60)
+    // `container` has no row in doc 08's Layout table; the pinned CLI accepts it and doc 08 §Corrections names it.
+    'container' => [
+        'family' => 'layout',
+        'kind' => 'static',
+        'theme' => [],
+        'bare' => null,
+        'fraction' => false,
+        'negative' => false,
+        'arbitrary' => false,
+        'modifier' => null,
+        'tier' => 'T1',
+        'forms' => ['static', 'important'],
+    ],
     'aspect' => [
         'family' => 'layout',
         'kind' => 'functional',
