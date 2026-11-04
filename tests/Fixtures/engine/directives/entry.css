@@ -1,0 +1,19 @@
+/* An entry with every T1 directive the processor consumes. */
+@import "tailwindcss" source(none);
+@import "./partials/card.css" layer(components);
+
+@theme {
+  --color-brand: #ff5a1f;
+}
+
+@source inline("underline p-{1..2}");
+
+@utility content-auto {
+  content-visibility: auto;
+}
+
+@custom-variant hocus (&:hover, &:focus);
+
+.btn {
+  @apply px-4 hocus:underline;
+}

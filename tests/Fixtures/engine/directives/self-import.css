@@ -1,0 +1,6 @@
+/* Imports itself: one E_IMPORT_CYCLE, then the walk ends. */
+@import "./self-import.css";
+
+.self {
+  color: red;
+}
