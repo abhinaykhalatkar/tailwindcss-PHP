@@ -51,6 +51,11 @@ use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
  * otherwise repeat it without limit. Past the first two a subtree is dropped;
  * past the budget the walk stops altogether. Each case is one `E_CSS_SYNTAX`
  * diagnostic (capped like the parser's). The input tree is never modified.
+ *
+ * @phpstan-type ParentContext array{
+ *     0: string, 1: list<string>, 2: bool, 3: bool, 4: string, 5: list<bool>, 6: int,
+ *     7: list<int>, 8: int, 9: int, 10: int, 11: list<bool>
+ * }
  */
 final class Nesting
 {
@@ -116,13 +121,11 @@ final class Nesting
     /**
      * Flatten the contents of one block into $out.
      *
-     * $context describes the enclosing rule — its resolved selector, the
-     * parts of it, whether any part is complex, whether any has a
-     * pseudo-element, its `:is()` form, and per part whether it has a
-     * pseudo-element — or is null outside any rule.
+     * $context describes the enclosing rule (see {@see self::context()}) —
+     * or is null outside any rule.
      *
      * @param list<Node> $nodes The block's contents.
-     * @param array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string, 5: list<bool>, 6: int}|null $context
+     * @param ParentContext|null $context
      * @param Rule|null $origin The rule $nodes came from, for positions.
      * @param int $level Blocks around $nodes.
      * @param list<Node> $out
@@ -211,7 +214,7 @@ final class Nesting
      * Emit the declarations collected for the enclosing rule, if any — each
      * emission repeats the rule's selector, so it is charged to the budget.
      *
-     * @param array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string, 5: list<bool>, 6: int}|null $context
+     * @param ParentContext|null $context
      * @param list<Node> $chunk
      * @param list<Node> $out
      */
@@ -289,47 +292,82 @@ final class Nesting
 
     /**
      * Everything the children of a rule need about its resolved selector,
-     * computed once per rule rather than once per child.
+     * computed once per rule rather than once per child:
+     *
+     *  0 the joined selector · 1 its parts · 2 any part complex ·
+     *  3 any part with a pseudo-element · 4 the `:is()` form ·
+     *  5 per part: has a pseudo-element · 6 sum of the parts' bytes ·
+     *  7 indexes of the parts without a pseudo-element · 8 their bytes ·
+     *  9 bytes `:is()` wrapping adds over all parts for a typed child ·
+     * 10 the same over the parts without a pseudo-element ·
+     * 11 per part: a typed child must wrap it (complex or type-led).
+     *
+     * With 6–11 the size of any per-selector expansion is exact before a
+     * single part is built, whatever the shape of the list (ENG-A14).
      *
      * @param list<string> $parents
      *
-     * @return array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string, 5: list<bool>, 6: int}
+     * @return ParentContext
      */
     private static function context(array $parents): array
     {
         $complex = false;
         $pseudoElements = [];
+        $needsWrap = [];
+        $plainIndexes = [];
+        $partBytes = 0;
+        $plainBytes = 0;
+        $wrapAll = 0;
+        $wrapPlain = 0;
 
-        foreach ($parents as $parent) {
-            $complex = $complex || SelectorList::isComplex($parent);
-            $pseudoElements[] = SelectorList::hasPseudoElement($parent);
+        foreach ($parents as $index => $parent) {
+            $isComplex = SelectorList::isComplex($parent);
+            $hasPseudo = SelectorList::hasPseudoElement($parent);
+            $wrap = $isComplex || self::startsWithType($parent);
+            $length = \strlen($parent);
+
+            $complex = $complex || $isComplex;
+            $pseudoElements[] = $hasPseudo;
+            $needsWrap[] = $wrap;
+            $partBytes += $length;
+            $wrapAll += $wrap ? 5 : 0;
+
+            if (!$hasPseudo) {
+                $plainIndexes[] = $index;
+                $plainBytes += $length;
+                $wrapPlain += $wrap ? 5 : 0;
+            }
         }
 
         $joined = \implode(', ', $parents);
-
-        // Sum of the parts' lengths: with it, the size of a per-selector
-        // expansion is known before building it.
-        $partBytes = \strlen($joined) - 2 * (\count($parents) - 1);
 
         return [
             $joined,
             $parents,
             $complex,
-            \in_array(true, $pseudoElements, true),
+            \count($plainIndexes) !== \count($parents),
             ':is(' . $joined . ')',
             $pseudoElements,
             $partBytes,
+            $plainIndexes,
+            $plainBytes,
+            $wrapAll,
+            $wrapPlain,
+            $needsWrap,
         ];
     }
 
     /**
      * Resolve a rule's selector against its enclosing rule: the resolved
      * parts (empty when every branch was invalid), or null when nesting would
-     * make it longer than {@see self::MAX_SELECTOR_BYTES}. The size is checked
-     * before each part is built, so an oversized selector is never
-     * materialised. A top-level selector is not nested, so it is not capped.
+     * make it longer than {@see self::MAX_SELECTOR_BYTES}. The size of every
+     * expansion is known exactly before a part is built (the context carries
+     * the sums), so an oversized selector is refused in O(1) and never
+     * materialised; the work done per child is proportional to the parts
+     * actually emitted (threat T-05). A top-level selector is not nested, so
+     * it is not capped.
      *
-     * @param array{0: string, 1: list<string>, 2: bool, 3: bool, 4: string, 5: list<bool>, 6: int}|null $context
+     * @param ParentContext|null $context
      *
      * @return list<string>|null
      */
@@ -348,6 +386,7 @@ final class Nesting
         $bytes = 0;
         $droppedBranch = false;
         $parents = $context[1];
+        $all = \count($parents);
 
         foreach (SelectorList::split($selector) as $child) {
             $hoisted = SelectorList::hoistTypeSelectors($child);
@@ -360,7 +399,7 @@ final class Nesting
                 $count = 1;
             }
 
-            if (\count($parents) !== 1 && !$context[3] && ($context[2] || $count > 1)) {
+            if ($all !== 1 && !$context[3] && ($context[2] || $count > 1)) {
                 if (!self::fits($bytes, $child, $count, $context[4])) {
                     return null;
                 }
@@ -370,33 +409,41 @@ final class Nesting
                 continue;
             }
 
-            // Without pseudo-element parents every branch is kept, so the
-            // expansion's size is known up front (a lower bound when a typed
-            // child wraps parents in `:is()`): refuse in O(1) rather than
-            // building part after part of a huge list.
-            $expanded = \count($parents) * (\strlen($child) - $count) + $count * $context[6]
-                + 2 * (\count($parents) - 1);
+            // Which parts keep this child: all of them, or — after a
+            // pseudo-element parent, where only `&` plus pseudo-classes can
+            // match — the parts without one. Decided once per child.
+            $follows = !$context[3] || self::followsPseudoElement($child);
+            $kept = $follows ? $all : \count($context[7]);
 
-            if (!$context[3] && $bytes + $expanded > self::MAX_SELECTOR_BYTES) {
+            if ($kept === 0) {
+                $droppedBranch = true;
+
+                continue;
+            }
+
+            // The exact size of the expansion, before building any of it:
+            // each kept part repeats the child with its ampersands replaced
+            // (plus `:is(` + `)` when a typed child must wrap the part).
+            $partBytes = $follows ? $context[6] : $context[8];
+
+            if ($typed) {
+                $partBytes += $follows ? $context[9] : $context[10];
+            }
+
+            $expanded = $kept * (\strlen($child) - $count) + $count * $partBytes + 2 * ($kept - 1);
+
+            if ($bytes + $expanded > self::MAX_SELECTOR_BYTES) {
                 return null;
             }
 
-            foreach ($parents as $index => $parent) {
-                if ($context[5][$index] && !self::followsPseudoElement($child)) {
-                    $droppedBranch = true;
+            $bytes += $expanded + 2;
+            $droppedBranch = $droppedBranch || !$follows;
 
-                    continue;
-                }
-
+            foreach (($follows ? \array_keys($parents) : $context[7]) as $index) {
+                $parent = $parents[$index];
                 // A type selector now sits in front of `&`; a parent that is
                 // complex or starts with its own type must be wrapped.
-                $replacement = $typed && (SelectorList::isComplex($parent) || self::startsWithType($parent))
-                    ? ':is(' . $parent . ')'
-                    : $parent;
-
-                if (!self::fits($bytes, $child, $count, $replacement)) {
-                    return null;
-                }
+                $replacement = $typed && $context[11][$index] ? ':is(' . $parent . ')' : $parent;
 
                 $resolved[] = SelectorList::replaceAmpersand($child, $replacement);
             }

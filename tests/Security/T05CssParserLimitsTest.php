@@ -202,6 +202,162 @@ final class T05CssParserLimitsTest extends TestCase
     }
 
     /**
+     * Parent lists whose children were once resolved part by part before
+     * being refused or dropped, costing parents × children (8–50 s of CPU
+     * for 20–60 KB). The size of every expansion is now known up front, and
+     * only the parts actually kept are visited, so the work is proportional
+     * to what is emitted — here nothing (ENG-A14, round 4).
+     *
+     * @test
+     *
+     * @dataProvider parentListsTimesChildren
+     */
+    public function parentListsTimesChildrenCostLinearWork(string $css): void
+    {
+        $bag = new DiagnosticBag();
+        $collecting = \gc_enabled();
+        \gc_disable();
+
+        try {
+            $started = self::cpuSeconds();
+            $flat = Nesting::flatten(Parser::parse($css, $bag), $bag);
+            $compact = Serializer::compact($flat);
+            $elapsed = self::cpuSeconds() - $started;
+        } finally {
+            if ($collecting) {
+                \gc_enable();
+            }
+        }
+
+        self::assertSame('', $compact);
+        self::assertLessThanOrEqual(2 * (Tokenizer::MAX_DIAGNOSTICS + 1), \count($bag));
+        // Measured on this host after the fix: 0.05–0.3 s; before: 8–51 s.
+        self::assertLessThan(self::SECONDS, $elapsed, \sprintf('%d bytes took %.2f s of CPU', \strlen($css), $elapsed));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function parentListsTimesChildren(): array
+    {
+        $pseudo = \implode(',', \array_fill(0, 1000, 'a::b'));
+        $typed = \implode(',', \array_fill(0, 700, 'div'));
+        $mixed = '.p::before,' . \implode(',', \array_fill(0, 2000, 'a'));
+
+        return [
+            'pseudo-element parents, children that cannot follow them' => [
+                $pseudo . '{' . \str_repeat('x{}', 5000) . '}',
+            ],
+            'type-led parents, typed children that must wrap them' => [
+                $typed . '{' . \str_repeat('&span{}', 8000) . '}',
+            ],
+            'one pseudo-element parent in a long plain list' => [
+                $mixed . '{' . \str_repeat('&:h{}', 4000) . '}',
+            ],
+            'pseudo-element parents, children that follow them' => [
+                $pseudo . '{' . \str_repeat('&:h{}', 4000) . '}',
+            ],
+        ];
+    }
+
+    /**
+     * The token cap counts the construct's own tokens, never its terminator:
+     * exactly MAX_CONSTRUCT_TOKENS tokens are kept, one more is dropped.
+     *
+     * @test
+     */
+    public function exactlyTheTokenLimitIsKeptAndOneMoreIsDropped(): void
+    {
+        $half = (int) (Parser::MAX_CONSTRUCT_TOKENS / 2);
+        $bag = new DiagnosticBag();
+        $sheet = Parser::parse(\str_repeat('a,', $half) . '{x:y}', $bag);
+
+        self::assertCount(0, $bag);
+        self::assertCount(1, $sheet->nodes);
+
+        $bag = new DiagnosticBag();
+        $sheet = Parser::parse(\str_repeat('a,', $half) . 'a{x:y}', $bag);
+
+        self::assertCount(1, $bag);
+        self::assertStringContainsString('Construct too long', $bag->all()[0]->message());
+        self::assertCount(0, $sheet->nodes);
+    }
+
+    /**
+     * Skipping a dropped construct keeps the same bracket discipline as
+     * collecting it: a `)` never closes a `[`, so the construct ends exactly
+     * where it would have ended had it been kept — the text after it is not
+     * read as a new declaration a browser would treat as part of the old one.
+     *
+     * @test
+     */
+    public function skippingADroppedConstructEndsWhereCollectingWould(): void
+    {
+        $tail = ') ; e:f ] ; c:d}';
+        $css = 'r{b:[' . \str_repeat('x ', Parser::MAX_CONSTRUCT_TOKENS + 10) . $tail;
+
+        $bag = new DiagnosticBag();
+        $compact = Serializer::compact(Parser::parse($css, $bag));
+
+        self::assertSame('r{c:d}', $compact);
+        self::assertCount(1, $bag);
+    }
+
+    /**
+     * Skipping a dropped construct must cost no memory however many brackets
+     * follow the cap: the exact closer stack is bounded and further openers
+     * are only counted (round 4 review, TASK-0045 F1 — the first version
+     * reached 36 MB here, about 18 bytes per input byte).
+     *
+     * @test
+     *
+     * @dataProvider openersAfterTheCap
+     */
+    public function bracketsAfterTheTokenCapCostNoMemory(string $css): void
+    {
+        $bag = new DiagnosticBag();
+        $resetPeak = \function_exists('memory_reset_peak_usage');
+        $collecting = \gc_enabled();
+        \gc_disable();
+
+        try {
+            if ($resetPeak) {
+                \memory_reset_peak_usage();
+            }
+
+            $before = \memory_get_usage();
+            Parser::parse($css, $bag);
+            $peak = \memory_get_peak_usage() - $before;
+        } finally {
+            if ($collecting) {
+                \gc_enable();
+            }
+        }
+
+        self::assertStringContainsString('Construct too long', $bag->all()[0]->message());
+        // The cap, plus at most the block left unclosed by the openers.
+        self::assertLessThanOrEqual(2, \count($bag));
+
+        if ($resetPeak) {
+            self::assertLessThan(8 * 1024 * 1024, $peak, \sprintf('peak %.1f MB', $peak / 1048576));
+        }
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function openersAfterTheCap(): array
+    {
+        $cap = \str_repeat('c ', Parser::MAX_CONSTRUCT_TOKENS / 2 + 10);
+
+        return [
+            'two million parentheses' => ['x{b:' . $cap . \str_repeat('(', 2000000) . '}'],
+            'a million paren-bracket pairs' => ['x{b:' . $cap . \str_repeat('([', 1000000) . '}'],
+            'two million braces in a custom property' => ['x{--x:' . $cap . \str_repeat('{', 2000000) . '}'],
+        ];
+    }
+
+    /**
      * An 8 KB class selector.
      */
     private static function longParent(): string

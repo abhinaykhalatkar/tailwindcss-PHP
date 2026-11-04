@@ -63,6 +63,12 @@ final class Parser
     public const MAX_CONSTRUCT_TOKENS = 50000;
 
     /**
+     * Open brackets tracked exactly while skipping a dropped construct;
+     * beyond this they are only counted (T-05, see {@see self::skipConstruct()}).
+     */
+    private const SKIP_STACK_LIMIT = 1024;
+
+    /**
      * @var int
      */
     private $nodeCount = 0;
@@ -389,17 +395,6 @@ final class Parser
                 break;
             }
 
-            if (\count($raws) >= self::MAX_CONSTRUCT_TOKENS) {
-                // Too long to keep (ENG-A14): free what was stored and only
-                // find the terminator from here on, in constant memory.
-                $this->report(
-                    \sprintf('Construct too long (more than %d tokens); dropped', self::MAX_CONSTRUCT_TOKENS),
-                    $first
-                );
-
-                return [[], [], $this->skipConstruct($token, \count($stack), $custom), true, -1, true];
-            }
-
             // A comment sat between the previous token and this one. CSS
             // drops comments, so normally nothing is needed — but where the
             // two tokens would otherwise read as one (`1px` + `2px`, `a` +
@@ -427,6 +422,21 @@ final class Parser
                     $colon = \count($raws);
                     $custom = $maybeCustom && $significant === 1;
                 }
+            }
+
+            if ($type !== Token::WHITESPACE && \count($raws) >= self::MAX_CONSTRUCT_TOKENS) {
+                // Too long to keep (ENG-A14): free what was stored and only
+                // find the terminator from here on, in constant memory.
+                // Checked after the terminator tests and before this token
+                // touches the bracket stack, so a construct of exactly
+                // MAX_CONSTRUCT_TOKENS tokens is kept, its terminator never
+                // counts, and the skip starts from the stack as it really is.
+                $this->report(
+                    \sprintf('Construct too long (more than %d tokens); dropped', self::MAX_CONSTRUCT_TOKENS),
+                    $first
+                );
+
+                return [[], [], $this->skipConstruct($token, $stack, $custom), true, -1, true];
             }
 
             switch ($type) {
@@ -477,12 +487,24 @@ final class Parser
 
     /**
      * Read on from $token to the terminator of a construct that was too long
-     * to keep, storing nothing: bracket nesting is tracked as a single depth
-     * counter, starting from the $depth already open.
+     * to keep, storing nothing but the stack of expected closers — the same
+     * bracket discipline as {@see self::collect()} (a `)` never closes a
+     * `[`), so the construct ends exactly where it would have ended had it
+     * been kept.
+     *
+     * The stack is bounded (T-05): past {@see self::SKIP_STACK_LIMIT} open
+     * brackets — far beyond anything a kept construct could hold — further
+     * openers are only counted, so a run of millions of `(` after the cap
+     * costs no memory; while that count is above zero any closer decrements
+     * it (plain depth counting), and the exact matching resumes once it is
+     * back at zero.
+     *
+     * @param list<string> $stack The closers still open when skipping began.
      */
-    private function skipConstruct(Token $token, int $depth, bool $custom): Token
+    private function skipConstruct(Token $token, array $stack, bool $custom): Token
     {
         $tokenizer = $this->tokenizer;
+        $overflow = 0;
 
         while (true) {
             $type = $token->type;
@@ -491,7 +513,7 @@ final class Parser
                 return $token;
             }
 
-            if ($depth === 0) {
+            if ($stack === []) {
                 if ($type === Token::SEMICOLON || $type === Token::RIGHT_BRACE) {
                     return $token;
                 }
@@ -501,15 +523,30 @@ final class Parser
                 }
             }
 
-            $opens = $type === Token::FUNCTION_TOKEN || $type === Token::LEFT_PAREN
-                || $type === Token::LEFT_BRACKET || $type === Token::LEFT_BRACE;
-            $closes = $type === Token::RIGHT_PAREN || $type === Token::RIGHT_BRACKET
-                || $type === Token::RIGHT_BRACE;
+            switch ($type) {
+                case Token::FUNCTION_TOKEN:
+                case Token::LEFT_PAREN:
+                case Token::LEFT_BRACKET:
+                case Token::LEFT_BRACE:
+                    if ($overflow > 0 || \count($stack) >= self::SKIP_STACK_LIMIT) {
+                        ++$overflow;
+                    } else {
+                        $stack[] = $type === Token::LEFT_BRACKET
+                            ? Token::RIGHT_BRACKET
+                            : ($type === Token::LEFT_BRACE ? Token::RIGHT_BRACE : Token::RIGHT_PAREN);
+                    }
 
-            if ($opens) {
-                ++$depth;
-            } elseif ($closes && $depth > 0) {
-                --$depth;
+                    break;
+                case Token::RIGHT_PAREN:
+                case Token::RIGHT_BRACKET:
+                case Token::RIGHT_BRACE:
+                    if ($overflow > 0) {
+                        --$overflow;
+                    } elseif ($stack !== [] && $stack[\count($stack) - 1] === $type) {
+                        \array_pop($stack);
+                    }
+
+                    break;
             }
 
             $token = $tokenizer->next();
