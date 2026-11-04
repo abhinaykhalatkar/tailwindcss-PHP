@@ -286,7 +286,9 @@ final class DiagnosticTest extends TestCase
             'W_MANIFEST_CORRUPT',
             'W_CHECKSUM_UNKNOWN',
             'W_SOURCE_IGNORED',
+            'W_INVALID_THEME_VALUE',
             'I_DRIVER_SELECTED',
+            'I_PREFLIGHT_DISABLED',
         ];
 
         $cases = [];

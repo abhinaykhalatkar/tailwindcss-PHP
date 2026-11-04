@@ -50,8 +50,10 @@ final class Diagnostic
     public const W_MANIFEST_CORRUPT = 'W_MANIFEST_CORRUPT';
     public const W_CHECKSUM_UNKNOWN = 'W_CHECKSUM_UNKNOWN';
     public const W_SOURCE_IGNORED = 'W_SOURCE_IGNORED';
+    public const W_INVALID_THEME_VALUE = 'W_INVALID_THEME_VALUE';
 
     public const I_DRIVER_SELECTED = 'I_DRIVER_SELECTED';
+    public const I_PREFLIGHT_DISABLED = 'I_PREFLIGHT_DISABLED';
 
     /**
      * Every documented code, for validation.
@@ -81,7 +83,9 @@ final class Diagnostic
         self::W_MANIFEST_CORRUPT,
         self::W_CHECKSUM_UNKNOWN,
         self::W_SOURCE_IGNORED,
+        self::W_INVALID_THEME_VALUE,
         self::I_DRIVER_SELECTED,
+        self::I_PREFLIGHT_DISABLED,
     ];
 
     /**
