@@ -11,9 +11,10 @@ use TailwindPhp\Engine\Utility\Definition;
 /**
  * The handlers of the interactivity, SVG and accessibility family (`Data\Utilities\InteractivitySvgAccessibility`).
  *
- * A stub until its wave-4 family task lands: it implements no handler yet, so
- * every handler name a row of this family needs stays in
- * `Handlers::unimplemented()` and compiles to nothing. TASK-0040 fills it.
+ * This family implements no handler (TASK-0040): every root is a data row, the
+ * CLI's output for the keyword, spacing, snap, touch and paint utilities being
+ * plain declarations. The class stays so the family has the same shape as the
+ * others and a later root that needs a handler has its place.
  */
 final class InteractivitySvgAccessibility implements FamilyHandlerInterface
 {
@@ -22,7 +23,6 @@ final class InteractivitySvgAccessibility implements FamilyHandlerInterface
      */
     public static function names(): array
     {
-        // TODO M2-wave4 (TASK-0040): list the handler names this family implements.
         return [];
     }
 
@@ -31,7 +31,6 @@ final class InteractivitySvgAccessibility implements FamilyHandlerInterface
      */
     public function run(string $name, Definition $definition, Candidate $candidate, ThemeRegistry $theme): ?array
     {
-        // TODO M2-wave4 (TASK-0040): dispatch on $name.
         return null;
     }
 }
