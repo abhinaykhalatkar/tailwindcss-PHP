@@ -25,6 +25,7 @@ use TailwindPhp\Tests\Conformance\Support\CandidateAttribution;
 use TailwindPhp\Tests\Conformance\Support\Canonicalizer;
 use TailwindPhp\Tests\Conformance\Support\CorpusPaths;
 use TailwindPhp\Tests\Support\StaticRootSet;
+use TailwindPhp\Tools\KnownDifferences;
 
 /**
  * The acceptance signal for the variant table, the templates and the order before
@@ -62,6 +63,11 @@ final class VariantGoldenTest extends TestCase
         '-m-4' => ['margin', 'calc(var(--spacing) * -4)'],
     ];
 
+    public static function setUpBeforeClass(): void
+    {
+        require_once \dirname(__DIR__, 4) . '/tools/KnownDifferences.php';
+    }
+
     /**
      * @return array<string, array{0: string}>
      */
@@ -88,10 +94,23 @@ final class VariantGoldenTest extends TestCase
         $candidates = CorpusPaths::parseCandidates(self::read($paths->sourcePath($key)));
         $golden = self::goldenRules($paths, $key, $candidates);
         $parser = self::parser();
+        $allowed = self::allowed($key);
         $mismatches = [];
+        $skipped = 0;
 
         foreach ($candidates as $raw) {
             $ours = self::ourRules($parser, $raw);
+
+            if (\in_array($raw, $allowed, true)) {
+                // Listed in the allow-list: skipped, but only if the engine really
+                // refuses it, so the list cannot hide a candidate that works.
+                self::assertNull($ours, $raw . ' is allow-listed but the engine builds it: remove the entry.');
+
+                ++$skipped;
+
+                continue;
+            }
+
             $theirs = $golden[$raw] ?? [];
 
             if ($ours !== $theirs) {
@@ -103,7 +122,8 @@ final class VariantGoldenTest extends TestCase
         self::assertSame(
             [],
             \array_slice($mismatches, 0, 5, true),
-            $key . ' has ' . \count($mismatches) . ' mismatching candidates.'
+            $key . ' has ' . \count($mismatches) . ' mismatching candidates ('
+                . $skipped . ' skipped by the allow-list).'
         );
     }
 
@@ -120,10 +140,15 @@ final class VariantGoldenTest extends TestCase
         $parser = self::parser();
         $registry = self::registry();
         $applier = new Applier($registry, new DiagnosticBag());
+        $allowed = self::allowed($key);
         $lastByBase = [];
 
         foreach ($sequence as $raw) {
             $candidate = self::first($parser, $raw);
+
+            if (\in_array($raw, $allowed, true)) {
+                continue;
+            }
 
             if ($candidate === null || \count($candidate->variants) !== 1 || self::isArbitraryBreakpoint($candidate)) {
                 continue;
@@ -185,7 +210,59 @@ final class VariantGoldenTest extends TestCase
         self::assertGreaterThan(700, $total);
     }
 
+    /** @test */
+    public function theCompatGapsFileIsTenCandidatesAllOnTheAllowList(): void
+    {
+        $paths = new CorpusPaths();
+        $candidates = CorpusPaths::parseCandidates(self::read($paths->sourcePath('variants/compat-gaps')));
+        $allowed = self::allowed('variants/compat-gaps');
+
+        self::assertCount(10, $candidates);
+
+        \sort($candidates, \SORT_STRING);
+        \sort($allowed, \SORT_STRING);
+
+        self::assertSame($candidates, $allowed, 'variants/compat-gaps must list exactly what the allow-list names.');
+    }
+
+    /** @test */
+    public function everyVariantsAllowListEntryNamesACandidateOfItsCorpusFile(): void
+    {
+        $paths = new CorpusPaths();
+        $entries = KnownDifferences::load(\dirname(__DIR__, 4) . '/tests/Conformance/known-differences.php');
+        $checked = 0;
+
+        foreach ($entries as $entry) {
+            if (\strncmp($entry['corpus'], 'variants/', 9) !== 0) {
+                continue;
+            }
+
+            self::assertTrue($paths->has($entry['corpus']), $entry['corpus'] . ' is not a corpus entry.');
+            self::assertContains(
+                $entry['candidate'],
+                CorpusPaths::parseCandidates(self::read($paths->sourcePath($entry['corpus']))),
+                $entry['candidate'] . ' is allow-listed for ' . $entry['corpus'] . ' but is not in that file.'
+            );
+
+            ++$checked;
+        }
+
+        self::assertGreaterThanOrEqual(10, $checked);
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    /**
+     * The candidates the allow-list names for a corpus entry.
+     *
+     * @return list<string>
+     */
+    private static function allowed(string $key): array
+    {
+        $entries = KnownDifferences::load(\dirname(__DIR__, 4) . '/tests/Conformance/known-differences.php');
+
+        return \array_map('strval', \array_keys(KnownDifferences::index($entries)[$key] ?? []));
+    }
 
     private static function registry(): Registry
     {

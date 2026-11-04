@@ -1,0 +1,18 @@
+# Variants the pinned CLI (4.1.18) accepts and the engine deliberately or temporarily does not build.
+# Hand written. Every line is listed in tests/Conformance/known-differences.php; the variant golden
+# test skips them and asserts that the applier really refuses each one, so this file cannot hide
+# a candidate the engine handles.
+
+# arbitrary at-rules that are not grouping rules (refused on purpose, T-15)
+[@layer_x]:flex
+[@import_url(x)]:flex
+[@layer_x]:underline
+[@import_url(x)]:underline
+
+# compound variants the engine builds only for plain pseudo-class variants until M3
+group-group-hover:flex
+group-[.x]:flex
+peer-[.x]:flex
+group-group-hover:underline
+group-[.x]:underline
+peer-[.x]:underline

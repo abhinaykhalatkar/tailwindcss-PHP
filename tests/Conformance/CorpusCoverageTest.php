@@ -43,16 +43,6 @@ final class CorpusCoverageTest extends TestCase
 
     private const TOTAL = 4432;
 
-    /**
-     * Forms an inventory root lists that the corpus cannot give a sample for, and why.
-     * Reported as inventory findings; the list must stay exactly this long.
-     *
-     * @var array<string, string>
-     */
-    private const NO_SAMPLE = [
-        'list:theme' => 'doc 08 names `--list-style-*` but the 4.1.18 default theme defines no such variable.',
-    ];
-
     private const VARIANT_PREFIXES = ['md:', 'hover:', 'md:hover:', 'dark:', 'group-hover:', '[&>*]:'];
 
     /**
@@ -172,8 +162,10 @@ final class CorpusCoverageTest extends TestCase
     // ------------------------------------------------------- the inventory
 
     /** @test */
-    public function everyFormOfEveryRootIsInTheCorpusExceptTheDocumentedGaps(): void
+    public function everyFormOfEveryRootIsInTheCorpus(): void
     {
+        // A form the inventory lists but the corpus cannot sample (the `list` theme form
+        // was one, until it left the inventory) is a finding to fix there, not a gap to pin.
         $missing = [];
         $sections = [];
 
@@ -205,7 +197,7 @@ final class CorpusCoverageTest extends TestCase
             }
         }
 
-        self::assertSame(\array_keys(self::NO_SAMPLE), $missing);
+        self::assertSame([], $missing, 'These inventory forms have no corpus sample: ' . \implode(', ', $missing));
     }
 
     /** @test */

@@ -1784,14 +1784,14 @@ return [
     'list' => [
         'family' => 'typography',
         'kind' => 'functional',
-        'theme' => ['--list-style-*'],
+        'theme' => [],
         'bare' => 'keyword',
         'fraction' => false,
         'negative' => false,
         'arbitrary' => true,
         'modifier' => null,
         'tier' => 'T1',
-        'forms' => ['theme', 'bare', 'arbitrary', 'var', 'important'],
+        'forms' => ['bare', 'arbitrary', 'var', 'important'],
     ],
     'list-image' => [
         'family' => 'typography',

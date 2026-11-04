@@ -41,38 +41,75 @@ return [
         'since' => '4.1.18',
     ],
 
-    // TASK-0031 review: variants the CLI accepts that the engine does not (yet).
+    // Variants the CLI accepts that the engine does not build (TASK-0031 review). All ten
+    // candidates are in corpus/variants/compat-gaps.txt; VariantGoldenTest skips them and
+    // asserts that the applier really refuses each one.
     [
         'candidate' => '[@layer_x]:flex',
-        'corpus' => 'variants/arbitrary',
+        'corpus' => 'variants/compat-gaps',
+        'class' => 'deliberate',
+        'reason' => 'The CLI accepts any at-rule here; the engine allows only grouping ones (T-15).',
+        'since' => '4.1.18',
+    ],
+    [
+        'candidate' => '[@layer_x]:underline',
+        'corpus' => 'variants/compat-gaps',
         'class' => 'deliberate',
         'reason' => 'The CLI accepts any at-rule here; the engine allows only grouping ones (T-15).',
         'since' => '4.1.18',
     ],
     [
         'candidate' => '[@import_url(x)]:flex',
-        'corpus' => 'variants/arbitrary',
+        'corpus' => 'variants/compat-gaps',
+        'class' => 'deliberate',
+        'reason' => 'The CLI emits @import around the rule; the engine refuses a non-grouping at-rule (T-15).',
+        'since' => '4.1.18',
+    ],
+    [
+        'candidate' => '[@import_url(x)]:underline',
+        'corpus' => 'variants/compat-gaps',
         'class' => 'deliberate',
         'reason' => 'The CLI emits @import around the rule; the engine refuses a non-grouping at-rule (T-15).',
         'since' => '4.1.18',
     ],
     [
         'candidate' => 'group-group-hover:flex',
-        'corpus' => 'variants/group-peer',
+        'corpus' => 'variants/compat-gaps',
+        'class' => 'bug',
+        'reason' => 'The CLI nests a compound in a compound; the engine compounds pseudo-classes only until M3.',
+        'since' => '4.1.18',
+    ],
+    [
+        'candidate' => 'group-group-hover:underline',
+        'corpus' => 'variants/compat-gaps',
         'class' => 'bug',
         'reason' => 'The CLI nests a compound in a compound; the engine compounds pseudo-classes only until M3.',
         'since' => '4.1.18',
     ],
     [
         'candidate' => 'group-[.x]:flex',
-        'corpus' => 'variants/group-peer',
+        'corpus' => 'variants/compat-gaps',
+        'class' => 'bug',
+        'reason' => 'The CLI accepts group-[selector]; arbitrary compound variants come with M3.',
+        'since' => '4.1.18',
+    ],
+    [
+        'candidate' => 'group-[.x]:underline',
+        'corpus' => 'variants/compat-gaps',
         'class' => 'bug',
         'reason' => 'The CLI accepts group-[selector]; arbitrary compound variants come with M3.',
         'since' => '4.1.18',
     ],
     [
         'candidate' => 'peer-[.x]:flex',
-        'corpus' => 'variants/group-peer',
+        'corpus' => 'variants/compat-gaps',
+        'class' => 'bug',
+        'reason' => 'The CLI accepts peer-[selector]; arbitrary compound variants come with M3.',
+        'since' => '4.1.18',
+    ],
+    [
+        'candidate' => 'peer-[.x]:underline',
+        'corpus' => 'variants/compat-gaps',
         'class' => 'bug',
         'reason' => 'The CLI accepts peer-[selector]; arbitrary compound variants come with M3.',
         'since' => '4.1.18',
