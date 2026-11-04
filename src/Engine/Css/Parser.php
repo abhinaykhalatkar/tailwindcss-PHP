@@ -312,8 +312,18 @@ final class Parser
     private function declaration(Token $first, array $raws, array $types, int $colon): ?Declaration
     {
         $valid = $types[0] === Token::IDENT && $colon > 0;
+        $property = $raws[0];
+        $nameEnd = 1;
 
-        for ($i = 1; $valid && $i < $colon; ++$i) {
+        // Tailwind's namespace resets: `--color-*` and `--*` tokenize as the
+        // identifier `--color-` / `--` and a `*` delimiter, and are kept as one
+        // name. A star anywhere else in a property name is still invalid.
+        if ($valid && $colon > 1 && $types[1] === Token::DELIM && $raws[1] === '*' && self::isResetStem($property)) {
+            $property .= '*';
+            $nameEnd = 2;
+        }
+
+        for ($i = $nameEnd; $valid && $i < $colon; ++$i) {
             $valid = $types[$i] === Token::WHITESPACE;
         }
 
@@ -351,8 +361,17 @@ final class Parser
         }
 
         return $this->debug
-            ? new Declaration($raws[0], $value, $important, $first->line, $first->col)
-            : new Declaration($raws[0], $value, $important);
+            ? new Declaration($property, $value, $important, $first->line, $first->col)
+            : new Declaration($property, $value, $important);
+    }
+
+    /**
+     * Whether $ident can precede the `*` of a namespace reset: `--`, or a
+     * custom property name ending in `-` (`--color-`, `--drop-shadow-`).
+     */
+    private static function isResetStem(string $ident): bool
+    {
+        return \strncmp($ident, '--', 2) === 0 && \substr($ident, -1) === '-';
     }
 
     /**

@@ -490,6 +490,99 @@ final class ThemeRegistryTest extends TestCase
         self::assertSame(['--a' => '1'], $registry->usedVars());
     }
 
+    /**
+     * v4 writes `--default-font-family: --theme(--font-sans, initial)`: once
+     * `--font-sans` is gone the default is `initial`, i.e. not emitted (and
+     * not followed). Probed with the pinned CLI (TASK-0050):
+     *
+     * - `--font-*: initial` → neither default font variable;
+     * - `--font-mono: initial` → only the mono one goes;
+     * - `--font-*: initial; --font-mono: x` → the mono one stays.
+     *
+     * @test
+     *
+     * @dataProvider defaultFontResets
+     *
+     * @param array<string, string> $authored
+     * @param list<string> $expected
+     */
+    public function aDefaultVariableReadingAMissingVariableIsNotEmitted(array $authored, array $expected): void
+    {
+        $registry = $this->defaults();
+        $registry->merge($authored, ThemeFlags::none());
+        $registry->markUsed('--default-font-family');
+        $registry->markUsed('--default-mono-font-family');
+
+        self::assertSame($expected, \array_keys($registry->emittable()));
+    }
+
+    /**
+     * @return array<string, array{0: array<string, string>, 1: list<string>}>
+     */
+    public static function defaultFontResets(): array
+    {
+        return [
+            'no reset' => [
+                [],
+                ['--font-sans', '--font-mono', '--default-font-family', '--default-mono-font-family'],
+            ],
+            'every font reset' => [['--font-*' => 'initial'], []],
+            'the mono font reset' => [['--font-mono' => 'initial'], ['--font-sans', '--default-font-family']],
+            'every font reset, mono redefined' => [
+                ['--font-*' => 'initial', '--font-mono' => 'x'],
+                ['--default-mono-font-family', '--font-mono'],
+            ],
+        ];
+    }
+
+    /**
+     * A used variable that reads an unset default does not bring it back
+     * through the `var()` closure.
+     *
+     * @test
+     */
+    public function anUnsetDefaultIsNotFollowedFromAUsedVariable(): void
+    {
+        $registry = $this->defaults();
+        $authored = ['--font-mono' => 'initial', '--code' => 'var(--default-mono-font-family)'];
+        $registry->merge($authored, ThemeFlags::none());
+        $registry->markUsed('--code');
+
+        self::assertSame(['--code'], \array_keys($registry->emittable()));
+    }
+
+    /**
+     * The rule is the default block's `--theme(…, initial)` form only: an
+     * authored variable reading an undefined one is emitted as written.
+     *
+     * @test
+     */
+    public function anAuthoredVariableReadingAMissingVariableIsStillEmitted(): void
+    {
+        $registry = $this->registry(['--foo' => 'var(--nope)', '--bar' => 'var(--nope, red)']);
+        $registry->markUsed('--foo');
+        $registry->markUsed('--bar');
+
+        self::assertSame(['--foo' => 'var(--nope)', '--bar' => 'var(--nope, red)'], $registry->emittable());
+    }
+
+    /**
+     * Only a value that is exactly one `var(--x)`: a fallback or more text
+     * keeps a default variable, as the CLI prints those whatever is defined.
+     *
+     * @test
+     */
+    public function aDefaultVariableWithMoreThanOneReferenceIsKept(): void
+    {
+        $registry = new ThemeRegistry();
+        $defaults = ['--a' => 'var(--gone, 1px)', '--b' => 'calc(var(--gone) * 2)'];
+        $registry->merge($defaults, new ThemeFlags(false, false, false, true));
+        $registry->markUsed('--a');
+        $registry->markUsed('--b');
+
+        self::assertSame(['--a', '--b'], \array_keys($registry->emittable()));
+    }
+
     /** @test */
     public function onlyUsedVariablesAreEmittedUnlessStatic(): void
     {
@@ -852,6 +945,23 @@ final class ThemeRegistryTest extends TestCase
         self::assertNotNull($value, $name . ' should be defined.');
 
         return $value;
+    }
+
+    /**
+     * The two font defaults of `theme.css` and the fonts they read, as a
+     * `default` block.
+     */
+    private function defaults(): ThemeRegistry
+    {
+        $registry = new ThemeRegistry();
+        $registry->merge([
+            '--font-sans' => 'ui-sans-serif',
+            '--font-mono' => 'ui-monospace',
+            '--default-font-family' => 'var(--font-sans)',
+            '--default-mono-font-family' => 'var(--font-mono)',
+        ], new ThemeFlags(false, false, false, true));
+
+        return $registry;
     }
 
     /**

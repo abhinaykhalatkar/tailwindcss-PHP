@@ -39,15 +39,7 @@ use TailwindPhp\Tests\Support\InMemoryImportResolver;
  */
 final class FixtureGoldenTest extends TestCase
 {
-    /**
-     * Fixtures whose golden the processor cannot match yet, with the reason.
-     */
     private const FONT_SETTINGS = ['font-feature-settings', 'font-variation-settings'];
-
-    private const KNOWN = [
-        'theme-reset' => '`Css\Parser` drops `--color-*: initial` as an invalid declaration, so the wildcard '
-            . 'resets never reach `ThemeParser` (TASK-0024 code; reported for TASK-0042).',
-    ];
 
     /**
      * @test
@@ -56,10 +48,6 @@ final class FixtureGoldenTest extends TestCase
      */
     public function theFixtureAgreesWithItsGolden(string $name): void
     {
-        if (isset(self::KNOWN[$name])) {
-            self::markTestIncomplete(self::KNOWN[$name]);
-        }
-
         $corpus = self::corpus();
         $css = (string) \file_get_contents($corpus . '/' . $name . '.css');
         $golden = Parser::parse((string) \file_get_contents(self::golden($name)), new DiagnosticBag());

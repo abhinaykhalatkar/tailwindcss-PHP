@@ -354,6 +354,41 @@ final class ThemeParserTest extends TestCase
     // ---------------------------------------------------------------- helpers
 
     /**
+     * The resets as written in a stylesheet, through `Css\Parser` (the gap
+     * TASK-0050 closed was in the parser, which hand-built nodes hid), and
+     * applied by the registry: the namespaces are gone, the redeclared names
+     * and the protected sub-namespace stay (`corpus/directives/theme-reset.css`).
+     *
+     * @test
+     */
+    public function resetsWrittenInAStylesheetReachTheRegistry(): void
+    {
+        $bag = new DiagnosticBag();
+        $sheet = \TailwindPhp\Engine\Css\Parser::parse(
+            "@theme {\n  --color-*: initial;\n  --font-*: initial;\n  --color-brand: #ff5a1f;\n}",
+            $bag
+        );
+        $block = $sheet->nodes[0];
+
+        self::assertInstanceOf(AtRule::class, $block);
+
+        $result = ThemeParser::parse($block, $bag);
+        $registry = \TailwindPhp\Engine\Theme\ThemeRegistry::fromDefault(
+            \TailwindPhp\Engine\Data\DefaultTheme::vars(),
+            \TailwindPhp\Engine\Data\DefaultTheme::keyframes()
+        );
+        $registry->merge($result['vars'], $result['flags'], $result['keyframes']);
+
+        self::assertTrue($bag->isEmpty(), \json_encode($bag->toArray()) ?: '');
+        $expected = ['--color-*' => 'initial', '--font-*' => 'initial', '--color-brand' => '#ff5a1f'];
+        self::assertSame($expected, $result['vars']);
+        self::assertNull($registry->get('--color-red-500'));
+        self::assertNull($registry->get('--font-sans'));
+        self::assertNotNull($registry->get('--color-brand'));
+        self::assertNotNull($registry->get('--font-weight-bold'), '--font-* leaves --font-weight-*');
+    }
+
+    /**
      * @param array<array-key, Node> $nodes
      */
     private function theme(string $params, array $nodes): AtRule

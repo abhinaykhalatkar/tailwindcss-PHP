@@ -367,7 +367,7 @@ final class ThemeRegistry
         foreach ($this->vars as $name => $entry) {
             $name = (string) $name;
 
-            if (($entry[1] & self::REFERENCE) !== 0) {
+            if (($entry[1] & self::REFERENCE) !== 0 || $this->isUnsetDefault($name)) {
                 continue;
             }
 
@@ -386,6 +386,7 @@ final class ThemeRegistry
                     isset($this->vars[$reference])
                     && !isset($emit[$reference])
                     && ($this->vars[$reference][1] & self::REFERENCE) === 0
+                    && !$this->isUnsetDefault($reference)
                 ) {
                     $emit[$reference] = true;
                     $queue[] = $reference;
@@ -414,6 +415,32 @@ final class ThemeRegistry
     private function isDefaultVar(string $name): bool
     {
         return isset($this->vars[$name]) && ($this->vars[$name][1] & self::DEFAULT_BLOCK) !== 0;
+    }
+
+    /**
+     * A default variable whose whole value is one `var(--x)` of a variable that
+     * is not defined: v4 writes those as `--theme(--x, initial)`
+     * (`--default-font-family`, `--default-mono-font-family`), so once `--x` is
+     * reset the variable is `initial` — not emitted, and not followed. Authored
+     * variables are emitted as written whatever they read.
+     */
+    private function isUnsetDefault(string $name): bool
+    {
+        if (!$this->isDefaultVar($name)) {
+            return false;
+        }
+
+        $value = \trim($this->vars[$name][0]);
+
+        if (\strncmp($value, 'var(', 4) !== 0 || \substr($value, -1) !== ')') {
+            return false;
+        }
+
+        $reference = \trim((string) \substr($value, 4, -1));
+
+        return \strncmp($reference, '--', 2) === 0
+            && \strcspn($reference, " \t\n,()") === \strlen($reference)
+            && !isset($this->vars[$reference]);
     }
 
     /**

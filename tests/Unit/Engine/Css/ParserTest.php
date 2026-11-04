@@ -344,7 +344,136 @@ final class ParserTest extends TestCase
                 [['rule', 'a', [['decl', 'b', 'c', false]]]],
                 'Unterminated comment',
             ],
+            // TASK-0050: only `--<stem>-*` and `--*` take a star; anything else
+            // with one is still an invalid declaration.
+            'a star inside a custom property name' => [
+                'a{--a*b: x;x:y}',
+                [['rule', 'a', [['decl', 'x', 'y', false]]]],
+                'Invalid declaration',
+            ],
+            'a wildcard on a plain property' => [
+                'a{a-*: x;x:y}',
+                [['rule', 'a', [['decl', 'x', 'y', false]]]],
+                'Invalid declaration',
+            ],
+            'a lone star as the property' => [
+                'a{*: x;x:y}',
+                [['rule', 'a', [['decl', 'x', 'y', false]]]],
+                'Invalid declaration',
+            ],
+            'text after the wildcard' => [
+                'a{--x-*y: z;x:y}',
+                [['rule', 'a', [['decl', 'x', 'y', false]]]],
+                'Invalid declaration',
+            ],
+            'two stars' => [
+                'a{--x-**: z;x:y}',
+                [['rule', 'a', [['decl', 'x', 'y', false]]]],
+                'Invalid declaration',
+            ],
+            'a star without the hyphen before it' => [
+                'a{--x*: z;x:y}',
+                [['rule', 'a', [['decl', 'x', 'y', false]]]],
+                'Invalid declaration',
+            ],
         ];
+    }
+
+    /**
+     * Tailwind's namespace resets (`--color-*: initial`, `--*: initial`) are
+     * declarations whose property is kept verbatim, so `@theme` can read them
+     * (TASK-0050; `corpus/directives/theme-reset.css`).
+     *
+     * @test
+     */
+    public function aWildcardCustomPropertyNameIsKeptVerbatim(): void
+    {
+        $bag = new DiagnosticBag();
+        $css = "@theme {\n  --color-*: initial;\n  --*: initial;\n  --font-* : initial !important;\n}";
+        $sheet = Parser::parse($css, $bag);
+
+        self::assertSame([], $bag->toArray());
+        self::assertSame(
+            [['at', 'theme', '', [
+                ['decl', '--color-*', 'initial', false],
+                ['decl', '--*', 'initial', false],
+                ['decl', '--font-*', 'initial', true],
+            ]]],
+            AstDump::of($sheet)
+        );
+    }
+
+    /** @test */
+    public function aStarSelectorIsUntouched(): void
+    {
+        $bag = new DiagnosticBag();
+        $sheet = Parser::parse('* {a:b} a > * {c:d} --x-* {e:f}', $bag);
+
+        self::assertSame([], $bag->toArray());
+        self::assertSame(
+            [
+                ['rule', '*', [['decl', 'a', 'b', false]]],
+                ['rule', 'a > *', [['decl', 'c', 'd', false]]],
+                ['rule', '--x-*', [['decl', 'e', 'f', false]]],
+            ],
+            AstDump::of($sheet)
+        );
+    }
+
+    /**
+     * T-05 style: a block of 50 000 resets parses within the node cap and in
+     * time linear in its size, the same as 50 000 plain custom properties.
+     *
+     * @test
+     */
+    public function fiftyThousandWildcardResetsParseInLinearTime(): void
+    {
+        $wildcards = 'a{' . \str_repeat("--x-*: initial;\n", 50000) . '}';
+        $plain = 'a{' . \str_repeat("--x-a: initial;\n", 50000) . '}';
+
+        [$wildcardSheet, $wildcardBag, $wildcardCpu] = self::timedParse($wildcards);
+        [, , $plainCpu] = self::timedParse($plain);
+
+        self::assertSame([], $wildcardBag->toArray());
+        self::assertInstanceOf(\TailwindPhp\Engine\Css\Node\Rule::class, $wildcardSheet->nodes[0]);
+        self::assertCount(50000, $wildcardSheet->nodes[0]->nodes);
+        self::assertLessThan(2.0, $wildcardCpu, \sprintf('%.2f s of CPU', $wildcardCpu));
+        $message = \sprintf('%.2f s against %.2f s', $wildcardCpu, $plainCpu);
+        self::assertLessThan(3 * $plainCpu + 0.1, $wildcardCpu, $message);
+    }
+
+    /**
+     * @return array{0: \TailwindPhp\Engine\Css\Node\StyleSheet, 1: DiagnosticBag, 2: float}
+     */
+    private static function timedParse(string $css): array
+    {
+        $bag = new DiagnosticBag();
+        $collecting = \gc_enabled();
+        \gc_disable();
+
+        try {
+            $started = self::cpu();
+            $sheet = Parser::parse($css, $bag);
+            $elapsed = self::cpu() - $started;
+        } finally {
+            if ($collecting) {
+                \gc_enable();
+            }
+        }
+
+        return [$sheet, $bag, $elapsed];
+    }
+
+    private static function cpu(): float
+    {
+        $usage = \getrusage();
+
+        if ($usage === false) {
+            return \microtime(true);
+        }
+
+        return $usage['ru_utime.tv_sec'] + $usage['ru_utime.tv_usec'] / 1e6
+            + $usage['ru_stime.tv_sec'] + $usage['ru_stime.tv_usec'] / 1e6;
     }
 
     /** @test */
