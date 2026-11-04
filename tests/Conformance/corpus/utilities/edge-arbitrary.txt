@@ -1,0 +1,64 @@
+# Arbitrary values with and without type hints, (--var) values and arbitrary properties.
+
+# lengths and calc
+w-[32rem]
+w-[calc(100%-2rem)]
+w-[calc(100%_-_2rem)]
+p-[2px]
+-m-[4px]
+top-[117px]
+rotate-[17deg]
+opacity-[0.33]
+z-[999]
+aspect-[3/2]
+rounded-[12px]
+border-[3px]
+
+# colours, images and positions
+bg-[#123456]
+bg-[color:var(--x)]
+bg-[url(/img/a.png)]
+bg-[url('/img/a.png')]
+bg-[length:200px_100px]
+bg-[position:center_top]
+bg-[image:linear-gradient(red,blue)]
+fill-[#abc]
+object-[center_top]
+
+# type hints on text and font
+text-[14px]
+text-[length:1.5rem]
+text-[color:#fff]
+text-[#bada55]
+font-[600]
+font-[number:600]
+font-['Inter']
+font-[family-name:var(--f)]
+
+# grid, content, shadow, ease and animation
+grid-cols-[1fr_2fr]
+grid-cols-[repeat(3,minmax(0,1fr))]
+content-['hello']
+content-['a_b']
+content-['a\_b']
+content-['']
+ease-[cubic-bezier(0.4,0,0.2,1)]
+shadow-[0_0_#000]
+animate-[wiggle_1s_ease-in-out_infinite]
+
+# (--var) values
+w-(--w)
+bg-(--bg)
+text-(--size)
+text-(length:--size)
+text-(color:--c)
+p-(--pad)
+grid-cols-(--cols)
+opacity-(--o)
+
+# arbitrary properties
+[mask-type:luminance]
+[--my-var:1rem]
+[color:red]
+[content:'hi']
+[--my-var:var(--other)]

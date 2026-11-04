@@ -1,0 +1,51 @@
+# Malformed or hostile candidates that must produce nothing; the golden shows what the CLI really does.
+
+# missing or unknown values
+p-
+p-foo
+p-4px
+bg-red-9999
+bg-
+unknown-4
+zzz
+w-/2
+w-1/
+p--4
+
+# unbalanced or empty brackets
+w-[
+w-[]
+w-[}]
+w-[{]
+[]
+[:]
+[a:]
+[:red]
+
+# values that must be refused outright
+text-[javascript:alert(1)]
+bg-[url(javascript:alert(1))]
+flex-[1;color:red]
+p-[1px;color:red]
+p-[1px/*x*/]
+
+# empty or misplaced variants and markers
+md:
+hover:
+:p-4
+hover::p-4
+!!p-4
+-
+!
+
+# modifiers with nothing after the slash
+bg-red-500/
+bg-red-500/[
+text-xl//6
+p-4/
+
+# negative of a static
+-flex
+
+# over-long
+p-4444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444

@@ -1,0 +1,21 @@
+# Important marker as prefix and as suffix, alone and with variants.
+
+# prefix and suffix
+!p-4
+p-4!
+!flex
+flex!
+!hidden
+sr-only!
+!-mt-4
+-mt-4!
+!w-1/2
+!w-[10px]
+![color:red]
+!bg-red-500/50
+
+# with variants
+md:!flex
+md:flex!
+!md:flex
+!hover:md:flex

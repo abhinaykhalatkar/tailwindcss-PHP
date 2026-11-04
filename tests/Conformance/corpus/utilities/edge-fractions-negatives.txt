@@ -1,0 +1,50 @@
+# Fractions and negative values, including negatives on roots that do not allow them.
+
+# fractions
+w-1/2
+w-5/12
+w-11/12
+h-3/4
+size-1/2
+basis-1/2
+inset-1/3
+top-1/2
+translate-x-1/2
+translate-x-full
+aspect-16/9
+aspect-video
+aspect-square
+flex-1/2
+
+# negatives that are allowed
+-mt-4
+-mx-2
+-mb-px
+-inset-1
+-top-4
+-left-1/2
+-z-10
+-order-1
+-col-start-1
+-indent-4
+-tracking-wide
+-rotate-45
+-scale-50
+-scroll-m-4
+-outline-offset-2
+-underline-offset-2
+-space-x-2
+-translate-x-1/2
+
+# negatives that must not apply
+-p-4
+-w-4
+-gap-4
+-opacity-50
+-duration-150
+-grow
+-leading-4
+-scroll-p-4
+-col-span-2
+-bg-red-500
+-mx-auto

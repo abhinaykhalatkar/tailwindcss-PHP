@@ -1,0 +1,29 @@
+# Slash modifiers: colour opacity, line-height, and modifiers on roots that have none.
+
+# colour opacity
+bg-red-500/50
+bg-red-500/0
+bg-red-500/[0.33]
+bg-red-500/(--o)
+text-red-500/50
+border-red-500/25
+ring-red-500/50
+decoration-red-500/30
+from-red-500/50
+fill-red-500/50
+shadow-red-500/50
+shadow-xl/30
+
+# line-height on text sizes
+text-xl/8
+text-xl/[1.1]
+text-xl/tight
+text-xl/(--lh)
+text-[14px]/7
+
+# modifiers on roots that take none
+p-4/50
+flex/50
+opacity-50/50
+rounded-lg/50
+bg-cover/50
