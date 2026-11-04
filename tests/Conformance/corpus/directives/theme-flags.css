@@ -1,0 +1,19 @@
+/* @theme flags: inline, static, default and reference. */
+@import "tailwindcss" source(none);
+
+@theme inline {
+  --font-body: var(--font-sans);
+  --color-ink: var(--ink);
+}
+
+@theme static {
+  --color-always: #123456;
+}
+
+@theme default {
+  --color-soft: #eeeeee;
+}
+
+@theme reference {
+  --color-hidden: #654321;
+}

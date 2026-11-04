@@ -1,0 +1,2 @@
+/* Only the theme bundle, with every variable emitted (the shape the default-theme importer reads). */
+@import "tailwindcss/theme.css" theme(static);

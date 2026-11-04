@@ -1,0 +1,2 @@
+# inline resolves to the referenced value, static is always emitted, reference never is.
+font-body bg-ink text-ink bg-always bg-soft bg-hidden text-hidden

@@ -1,0 +1,15 @@
+# Child-selector variants * and ** (design doc 08 §Variants, T1).
+
+# direct children
+*:p-4
+*:flex
+*:bg-red-500
+*:text-center
+*:underline
+
+# all descendants
+**:p-4
+**:flex
+**:bg-red-500
+**:text-center
+**:underline

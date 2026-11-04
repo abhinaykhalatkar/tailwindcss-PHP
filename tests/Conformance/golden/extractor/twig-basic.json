@@ -1,0 +1,16 @@
+[
+    "bg-white",
+    "flex",
+    "font-bold",
+    "font-semibold",
+    "gap-4",
+    "hover:text-blue-500",
+    "items-center",
+    "justify-between",
+    "md:inline-block",
+    "p-4",
+    "shadow-md",
+    "text-blue-600",
+    "text-gray-900",
+    "text-xl"
+]

@@ -1,0 +1,1 @@
+theme-midnight:p-4 any-hover:underline md:theme-midnight:flex theme-midnight:hover:bg-red-500

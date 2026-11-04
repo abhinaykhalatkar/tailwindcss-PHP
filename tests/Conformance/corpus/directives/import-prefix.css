@@ -1,0 +1,2 @@
+/* prefix(tw): every utility and variant is written tw:... */
+@import "tailwindcss" prefix(tw) source(none);

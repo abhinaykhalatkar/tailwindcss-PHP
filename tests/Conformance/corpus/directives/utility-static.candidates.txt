@@ -1,0 +1,1 @@
+content-auto hover:content-auto md:scrollbar-hidden scrollbar-hidden dark:content-auto

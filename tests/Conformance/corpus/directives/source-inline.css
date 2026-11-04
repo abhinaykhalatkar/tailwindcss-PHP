@@ -1,0 +1,7 @@
+/* @source inline() with brace alternatives and ranges, and a negated inline source. */
+@import "tailwindcss" source(none);
+
+@source inline("underline");
+@source inline("{hover:,focus:,}font-bold");
+@source inline("p-{1..5}");
+@source not inline("p-3");

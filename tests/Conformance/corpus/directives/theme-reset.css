@@ -1,0 +1,12 @@
+/* `initial` resets: drop a whole namespace, then declare what stays. */
+@import "tailwindcss" source(none);
+
+@theme {
+  --color-*: initial;
+  --font-*: initial;
+  --breakpoint-*: initial;
+  --color-brand: #ff5a1f;
+  --color-white: #ffffff;
+  --font-sans: "Inter", sans-serif;
+  --breakpoint-tablet: 48rem;
+}

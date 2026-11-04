@@ -1,0 +1,1 @@
+animate-wiggle md:animate-wiggle hover:animate-wiggle animate-spin animate-none

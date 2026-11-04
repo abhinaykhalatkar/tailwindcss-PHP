@@ -1,0 +1,4 @@
+# Candidates that read the variables declared in theme-basic.css, plus built-ins for contrast.
+bg-brand text-brand-dark bg-brand/50 border-brand hover:bg-brand-dark
+font-display 3xl:flex rounded-pill shadow-card ease-snappy
+p-4 flex

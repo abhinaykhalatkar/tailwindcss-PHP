@@ -1,0 +1,4 @@
+/* Relative imports, with and without layer(), two levels deep. */
+@import "tailwindcss" source(none);
+@import "./import-partial.css" layer(components);
+@import "./import-plain.css";

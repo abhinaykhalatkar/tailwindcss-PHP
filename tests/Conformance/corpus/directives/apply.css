@@ -1,0 +1,11 @@
+/* @apply of plain utilities and of utilities with variants. */
+@import "tailwindcss" source(none);
+
+.btn {
+  @apply px-4 py-2 rounded font-semibold;
+  @apply hover:bg-red-500 md:text-lg;
+}
+
+.card {
+  @apply p-4 shadow-md dark:bg-gray-900;
+}

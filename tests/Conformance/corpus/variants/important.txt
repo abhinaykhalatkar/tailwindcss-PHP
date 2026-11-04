@@ -1,0 +1,28 @@
+# Important modifier, as prefix and as suffix (design doc 08 §Variants, T1).
+
+# important
+!p-4
+p-4!
+!flex
+flex!
+!bg-red-500
+bg-red-500!
+!underline
+underline!
+!-m-4
+-m-4!
+hover:!p-4
+hover:p-4!
+hover:!underline
+md:!p-4
+md:p-4!
+md:!underline
+dark:!p-4
+dark:p-4!
+dark:!underline
+group-hover:!p-4
+group-hover:p-4!
+group-hover:!underline
+md:hover:!p-4
+md:hover:p-4!
+md:hover:!underline

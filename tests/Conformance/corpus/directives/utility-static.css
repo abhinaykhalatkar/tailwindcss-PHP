@@ -1,0 +1,14 @@
+/* Static @utility definitions, one with a nested selector. */
+@import "tailwindcss" source(none);
+
+@utility content-auto {
+  content-visibility: auto;
+}
+
+@utility scrollbar-hidden {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

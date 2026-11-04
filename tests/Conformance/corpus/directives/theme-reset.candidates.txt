@@ -1,0 +1,2 @@
+# After the resets only the declared names exist; bg-red-500, font-mono and md: must emit nothing.
+bg-brand text-white bg-red-500 font-sans font-mono tablet:flex md:flex p-4

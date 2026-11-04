@@ -1,0 +1,66 @@
+name: Goldens
+
+# The conformance goldens are the output of the pinned official Tailwind CLI for the
+# corpus. A corpus change must arrive with regenerated goldens in the same pull request,
+# and a golden must never be edited by hand — this job fails when either happens
+# (design doc 16 §Golden generation, design doc 20 §goldens.yml, decision ENG-A11).
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tests/Conformance/corpus/**'
+      - 'tests/Conformance/golden/**'
+      - 'tools/GoldenGenerator.php'
+      - 'tools/CliRunner.php'
+      - 'tools/generate-goldens.php'
+      - '.github/workflows/goldens.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  goldens:
+    name: Goldens are up to date (PHP 8.3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Resolve Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-8.3-highest-${{ hashFiles('composer.json') }}
+          restore-keys: ${{ runner.os }}-composer-8.3-
+
+      # No composer.lock is committed (design doc 17), so `update` is used.
+      - name: Install dependencies
+        run: composer update --no-interaction --no-progress
+
+      # The binary comes from the library's own `install-cli`, which also exercises that
+      # path: it downloads over HTTPS from the one release host and refuses to keep a
+      # file whose SHA-256 is not the one pinned for this version (T-04, T-18). The version
+      # is read from golden/VERSION by the shell, never interpolated into the script by the
+      # workflow, so a pull request cannot smuggle a command through it.
+      - name: Install the pinned Tailwind CLI
+        run: |
+          version="$(tr -d '[:space:]' < tests/Conformance/golden/VERSION)"
+          php bin/tailwind-php install-cli --version="$version" --dest=tools/.cache/tailwindcss
+
+      - name: Committed goldens match the corpus
+        run: php tools/generate-goldens.php --check
+
+      - name: Conformance suite and tool tests
+        run: vendor/bin/phpunit --testsuite Conformance && vendor/bin/phpunit tests/Integration/Tools

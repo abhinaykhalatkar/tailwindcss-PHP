@@ -1,0 +1,31 @@
+/* Authored @layer blocks, an unlayered rule and a custom layer. */
+@import "tailwindcss" source(none);
+
+@layer base {
+  h1 {
+    font-size: 2rem;
+  }
+}
+
+@layer components {
+  .btn {
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+  }
+}
+
+@layer utilities {
+  .tab-4 {
+    tab-size: 4;
+  }
+}
+
+@layer my-layer {
+  .scoped {
+    color: red;
+  }
+}
+
+.unlayered {
+  color: blue;
+}

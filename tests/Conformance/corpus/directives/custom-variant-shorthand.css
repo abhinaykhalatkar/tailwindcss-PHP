@@ -1,0 +1,5 @@
+/* @custom-variant in its shorthand (selector or at-rule) form. */
+@import "tailwindcss" source(none);
+
+@custom-variant theme-midnight (&:where([data-theme="midnight"] *));
+@custom-variant any-hover (@media (any-hover: hover));

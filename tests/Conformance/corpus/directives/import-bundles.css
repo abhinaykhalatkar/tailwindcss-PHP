@@ -1,0 +1,5 @@
+/* The three bundles imported separately, as `@import "tailwindcss"` expands. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);

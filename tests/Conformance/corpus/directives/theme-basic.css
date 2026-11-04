@@ -1,0 +1,12 @@
+/* @theme with the common namespaces: colour, font, breakpoint, radius, shadow, ease. */
+@import "tailwindcss" source(none);
+
+@theme {
+  --color-brand: #ff5a1f;
+  --color-brand-dark: oklch(0.45 0.18 30);
+  --font-display: "Satoshi", sans-serif;
+  --breakpoint-3xl: 120rem;
+  --radius-pill: 9999px;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.2);
+  --ease-snappy: cubic-bezier(0.2, 0, 0, 1);
+}

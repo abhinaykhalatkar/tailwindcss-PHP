@@ -1,0 +1,11 @@
+@import "./import-nested.css";
+
+.note {
+  color: gray;
+}
+
+@layer base {
+  .note {
+    font-style: italic;
+  }
+}

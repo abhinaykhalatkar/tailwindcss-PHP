@@ -1,0 +1,49 @@
+# Arbitrary variants (design doc 08 §Variants, T1).
+
+# arbitrary selectors
+[&>*]:p-4
+[&>*]:flex
+[&>*]:underline
+[&_p]:p-4
+[&_p]:flex
+[&_p]:underline
+[&:hover]:p-4
+[&:hover]:flex
+[&:hover]:underline
+[&.active]:p-4
+[&.active]:flex
+[&.active]:underline
+[.parent_&]:p-4
+[.parent_&]:flex
+[.parent_&]:underline
+[&:not(:first-child)]:p-4
+[&:not(:first-child)]:flex
+[&:not(:first-child)]:underline
+[&_.a_.b]:p-4
+[&_.a_.b]:flex
+[&_.a_.b]:underline
+[&[data-open]]:p-4
+[&[data-open]]:flex
+[&[data-open]]:underline
+
+# arbitrary at-rules
+[@media(min-width:900px)]:p-4
+[@media(min-width:900px)]:flex
+[@media(hover:hover)]:p-4
+[@media(hover:hover)]:flex
+[@media_print]:p-4
+[@media_print]:flex
+[@supports(display:grid)]:p-4
+[@supports(display:grid)]:flex
+[@supports(not_(display:grid))]:p-4
+[@supports(not_(display:grid))]:flex
+
+# combined with named variants
+[&>*]:hover:p-4
+[&>*]:hover:underline
+hover:[&>*]:p-4
+hover:[&>*]:underline
+md:[&_p]:p-4
+md:[&_p]:underline
+[@media(min-width:900px)]:hover:p-4
+[@media(min-width:900px)]:hover:underline

@@ -1,0 +1,14 @@
+[
+    "bg-white",
+    "container",
+    "divide-gray-200",
+    "divide-y",
+    "lg:px-8",
+    "max-w-7xl",
+    "mx-auto",
+    "overflow-hidden",
+    "px-4",
+    "rounded-lg",
+    "shadow",
+    "sm:px-6"
+]
