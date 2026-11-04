@@ -142,6 +142,17 @@ final class ArbitraryValue implements ValueInterface
         return self::isSafeWithin($raw, self::MAX_LENGTH);
     }
 
+    /**
+     * {@see self::isSafe()} with a caller-chosen length limit instead of
+     * {@see self::MAX_LENGTH}: the same scanner and the same rules, for text
+     * that is not candidate input (theme values, `@utility` bodies) and may be
+     * longer — the utility compiler's emission guard (TASK-0032).
+     */
+    public static function isSafeText(string $text, int $maxLength): bool
+    {
+        return self::isSafeWithin($text, $maxLength);
+    }
+
     private static function isSafeWithin(string $raw, int $maxLength): bool
     {
         $length = \strlen($raw);
