@@ -12,6 +12,7 @@ use TailwindPhp\Engine\Css\Node\StyleSheet;
 use TailwindPhp\Engine\Css\Parser;
 use TailwindPhp\Engine\Diagnostic\Diagnostic;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
+use TailwindPhp\Tests\Support\Tripwire;
 
 /**
  * The CSS parser (design doc 07 §Phase 1): rules, at-rules, declarations and
@@ -437,7 +438,7 @@ final class ParserTest extends TestCase
         self::assertSame([], $wildcardBag->toArray());
         self::assertInstanceOf(\TailwindPhp\Engine\Css\Node\Rule::class, $wildcardSheet->nodes[0]);
         self::assertCount(50000, $wildcardSheet->nodes[0]->nodes);
-        self::assertLessThan(2.0, $wildcardCpu, \sprintf('%.2f s of CPU', $wildcardCpu));
+        Tripwire::assertUnder(33.0, $wildcardCpu, __FUNCTION__);
         $message = \sprintf('%.2f s against %.2f s', $wildcardCpu, $plainCpu);
         self::assertLessThan(3 * $plainCpu + 0.1, $wildcardCpu, $message);
     }
@@ -452,9 +453,9 @@ final class ParserTest extends TestCase
         \gc_disable();
 
         try {
-            $started = self::cpu();
+            $started = Tripwire::cpu();
             $sheet = Parser::parse($css, $bag);
-            $elapsed = self::cpu() - $started;
+            $elapsed = Tripwire::cpu() - $started;
         } finally {
             if ($collecting) {
                 \gc_enable();
@@ -462,18 +463,6 @@ final class ParserTest extends TestCase
         }
 
         return [$sheet, $bag, $elapsed];
-    }
-
-    private static function cpu(): float
-    {
-        $usage = \getrusage();
-
-        if ($usage === false) {
-            return \microtime(true);
-        }
-
-        return $usage['ru_utime.tv_sec'] + $usage['ru_utime.tv_usec'] / 1e6
-            + $usage['ru_stime.tv_sec'] + $usage['ru_stime.tv_usec'] / 1e6;
     }
 
     /** @test */

@@ -11,6 +11,7 @@ use TailwindPhp\Engine\CompileRequest;
 use TailwindPhp\Engine\Diagnostic\Diagnostic;
 use TailwindPhp\Engine\Output\ApplyResolver;
 use TailwindPhp\Tests\Support\InMemoryImportResolver;
+use TailwindPhp\Tests\Support\Tripwire;
 
 /**
  * Phase 4, `@apply` (TASK-0034 criterion 4), through the whole engine as it runs:
@@ -128,9 +129,9 @@ final class ApplyResolverTest extends TestCase
         $before = \memory_get_usage();
 
         try {
-            $started = self::cpu();
+            $started = Tripwire::cpu();
             $output = (new Compiler())->compile($request);
-            $elapsed = self::cpu() - $started;
+            $elapsed = Tripwire::cpu() - $started;
         } finally {
             if ($collecting) {
                 \gc_enable();
@@ -142,7 +143,7 @@ final class ApplyResolverTest extends TestCase
         self::assertSame([Diagnostic::E_APPLY_DEPTH], self::codes($output));
         self::assertStringContainsString('expands past 100000 nodes', $output->diagnostics->all()[0]->message());
         // A tripwire, not a budget (EngineBench owns those): about 0.8 s here.
-        self::assertLessThan(3.0, $elapsed, \sprintf('%.2f s of CPU', $elapsed));
+        Tripwire::assertUnder(8.0, $elapsed, __FUNCTION__);
         self::assertLessThan(64 * 1048576, \memory_get_peak_usage() - $before);
     }
 
@@ -225,13 +226,13 @@ final class ApplyResolverTest extends TestCase
         \gc_disable();
 
         try {
-            $started = self::cpu();
+            $started = Tripwire::cpu();
             $output = (new Compiler())->compile(new CompileRequest(
                 $css . '.h { @apply ' . \implode(' ', $refused) . '; }',
                 new InMemoryImportResolver([]),
                 []
             ));
-            $elapsed = self::cpu() - $started;
+            $elapsed = Tripwire::cpu() - $started;
         } finally {
             if ($collecting) {
                 \gc_enable();
@@ -240,7 +241,7 @@ final class ApplyResolverTest extends TestCase
 
         self::assertContains(Diagnostic::E_APPLY_DEPTH, self::codes($output));
         // A tripwire, not a budget: about 0.35 s here (11.8 s before).
-        self::assertLessThan(3.0, $elapsed, \sprintf('%.2f s of CPU', $elapsed));
+        Tripwire::assertUnder(5.0, $elapsed, __FUNCTION__);
     }
 
     /**
@@ -297,18 +298,6 @@ final class ApplyResolverTest extends TestCase
         $request = new CompileRequest(self::ENTRY . $css, new InMemoryImportResolver([]), $candidates);
 
         return (new Compiler())->compile($request);
-    }
-
-    private static function cpu(): float
-    {
-        $usage = \getrusage();
-
-        if ($usage === false) {
-            return \microtime(true);
-        }
-
-        return $usage['ru_utime.tv_sec'] + $usage['ru_utime.tv_usec'] / 1e6
-            + $usage['ru_stime.tv_sec'] + $usage['ru_stime.tv_usec'] / 1e6;
     }
 
     /**

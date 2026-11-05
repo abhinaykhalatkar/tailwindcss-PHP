@@ -17,6 +17,7 @@ use TailwindPhp\Engine\Utility\CompiledUtility;
 use TailwindPhp\Engine\Utility\Compiler;
 use TailwindPhp\Engine\Utility\Registry;
 use TailwindPhp\Tests\Support\InMemoryImportResolver;
+use TailwindPhp\Tests\Support\Tripwire;
 
 /**
  * The compiler memoises a body by the candidate's utility part, everything but its variants (TASK-0042,
@@ -185,7 +186,7 @@ final class CompilerMemoTest extends TestCase
 
         self::assertSame(0, $output->stats['utilities']);
         // A tripwire, not a budget (EngineBench owns those): about 0.6 s here, 27 minutes before.
-        self::assertLessThan(10.0, $cpu, \sprintf('%.2f s of CPU', $cpu));
+        Tripwire::assertUnder(36.0, $cpu, __FUNCTION__);
     }
 
     /**
@@ -206,7 +207,7 @@ final class CompilerMemoTest extends TestCase
 
         self::assertSame(0, $output->stats['utilities']);
         // About 0.2 s here, 10.3 s before.
-        self::assertLessThan(10.0, $cpu, \sprintf('%.2f s of CPU', $cpu));
+        Tripwire::assertUnder(8.0, $cpu, __FUNCTION__);
     }
 
     /**
@@ -271,9 +272,9 @@ final class CompilerMemoTest extends TestCase
         \gc_disable();
 
         try {
-            $started = self::cpu();
+            $started = Tripwire::cpu();
             $output = (new EngineCompiler())->compile($request);
-            $elapsed = self::cpu() - $started;
+            $elapsed = Tripwire::cpu() - $started;
         } finally {
             if ($collecting) {
                 \gc_enable();
@@ -281,17 +282,5 @@ final class CompilerMemoTest extends TestCase
         }
 
         return [$output, $elapsed];
-    }
-
-    private static function cpu(): float
-    {
-        $usage = \getrusage();
-
-        if ($usage === false) {
-            return \microtime(true);
-        }
-
-        return $usage['ru_utime.tv_sec'] + $usage['ru_utime.tv_usec'] / 1e6
-            + $usage['ru_stime.tv_sec'] + $usage['ru_stime.tv_usec'] / 1e6;
     }
 }

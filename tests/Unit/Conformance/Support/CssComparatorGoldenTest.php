@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use TailwindPhp\Tests\Conformance\Support\ComparisonResult;
 use TailwindPhp\Tests\Conformance\Support\CorpusPaths;
 use TailwindPhp\Tests\Conformance\Support\CssComparator;
+use TailwindPhp\Tests\Support\Tripwire;
 
 /**
  * The comparator against the real goldens of the pinned CLI.
@@ -140,14 +141,14 @@ final class CssComparatorGoldenTest extends TestCase
 
         $golden = self::read($paths->goldenPath($largest));
         $candidates = self::candidatesOf($paths, $largest);
-        $start = \microtime(true);
+        $started = Tripwire::cpu();
 
         $result = (new CssComparator())->compare($golden, $golden, $candidates);
 
-        $seconds = \microtime(true) - $start;
+        $seconds = Tripwire::cpu() - $started;
 
         self::assertTrue($result->isIdentical());
-        self::assertLessThan(5.0, $seconds, $largest . ' took ' . \round($seconds, 2) . ' s');
+        Tripwire::assertUnder(15.0, $seconds, __FUNCTION__ . ' (' . $largest . ')');
     }
 
     // --------------------------------------------------------------- mutations

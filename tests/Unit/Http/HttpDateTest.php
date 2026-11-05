@@ -6,6 +6,7 @@ namespace TailwindPhp\Tests\Unit\Http;
 
 use PHPUnit\Framework\TestCase;
 use TailwindPhp\Http\HttpDate;
+use TailwindPhp\Tests\Support\Tripwire;
 
 /**
  * RFC 7231 §7.1.1.1 date handling (TASK-0016 acceptance 3).
@@ -127,12 +128,12 @@ final class HttpDateTest extends TestCase
      */
     public function parsingALongHostileValueIsCheap(): void
     {
-        $started = \microtime(true);
+        $started = Tripwire::cpu();
 
         for ($i = 0; $i < 200; ++$i) {
             self::assertNull(HttpDate::parse(\str_repeat('Sun, 06 Nov 1994 08:49:37 GMT, ', 300)));
         }
 
-        self::assertLessThan(2000.0, (\microtime(true) - $started) * 1000);
+        Tripwire::assertUnder(5.0, Tripwire::cpu() - $started, __FUNCTION__);
     }
 }

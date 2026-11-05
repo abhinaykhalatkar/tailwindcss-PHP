@@ -18,6 +18,7 @@ use TailwindPhp\Engine\Css\Token;
 use TailwindPhp\Engine\Css\Tokenizer;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
 use TailwindPhp\Tests\Support\StaticRootSet;
+use TailwindPhp\Tests\Support\Tripwire;
 
 /**
  * Threat T-15 (design doc 12): candidate text must never reach the CSS output
@@ -474,38 +475,22 @@ final class T15ArbitraryValueTest extends TestCase
             \gc_disable();
 
             try {
-                $started = self::cpuSeconds();
+                $started = Tripwire::cpu();
 
                 for ($i = 0; $i < 200; ++$i) {
                     $parser->parse($raw);
                 }
 
-                $perCall = (self::cpuSeconds() - $started) / 200 * 1000;
+                $elapsed = Tripwire::cpu() - $started;
             } finally {
                 if ($collecting) {
                     \gc_enable();
                 }
             }
 
-            // Informational bound (ms of CPU per call) far above the real
-            // cost; the structural guarantee is the single pass.
-            self::assertLessThan(5.0, $perCall, \sprintf('%s… took %.3f ms', \substr($raw, 0, 20), $perCall));
+            // A tripwire on the 200 calls (the structural guarantee is the single pass).
+            Tripwire::assertUnder(5.0, $elapsed, \sprintf('%s (200 × %s…)', __FUNCTION__, \substr($raw, 0, 20)));
         }
-    }
-
-    /**
-     * User plus system CPU time of this process, in seconds.
-     */
-    private static function cpuSeconds(): float
-    {
-        $usage = \getrusage();
-
-        if ($usage === false) {
-            return \microtime(true);
-        }
-
-        return $usage['ru_utime.tv_sec'] + $usage['ru_utime.tv_usec'] / 1e6
-            + $usage['ru_stime.tv_sec'] + $usage['ru_stime.tv_usec'] / 1e6;
     }
 
     /**

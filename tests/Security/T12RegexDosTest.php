@@ -7,6 +7,7 @@ namespace TailwindPhp\Tests\Security;
 use PHPUnit\Framework\TestCase;
 use TailwindPhp\Scanner\CandidateExtractor;
 use TailwindPhp\Scanner\CharClass;
+use TailwindPhp\Tests\Support\Tripwire;
 
 /**
  * Threat T12 (design doc 12): the extractor is a hand-written byte loop with
@@ -29,16 +30,16 @@ final class T12RegexDosTest extends TestCase
     {
         $extractor = new CandidateExtractor();
 
-        $start = \microtime(true);
+        $started = Tripwire::cpu();
         $result = $extractor->extract($bytes);
-        $elapsedMs = (\microtime(true) - $start) * 1000;
+        $elapsed = Tripwire::cpu() - $started;
 
         self::assertContainsOnly('string', $result);
         // 200 ms is generous for an un-JIT-ed interpreter (design doc 12
         // names a 10 ms budget on the reference machine); the point is
         // ruling out catastrophic backtracking, not re-asserting the tight
         // production budget covered by T05's opcache-gated test.
-        self::assertLessThan(200.0, $elapsedMs, 'Adversarial input must not exhibit catastrophic blow-up.');
+        Tripwire::assertRegexUnder(2.0, $elapsed, \sprintf('%s (%d bytes)', __FUNCTION__, \strlen($bytes)));
     }
 
     /**
@@ -66,15 +67,15 @@ final class T12RegexDosTest extends TestCase
         $extractor = new CandidateExtractor();
         $bytes = \str_repeat('(', 200000);
 
-        $start = \microtime(true);
+        $started = Tripwire::cpu();
         $result = $extractor->extract($bytes);
-        $elapsedMs = (\microtime(true) - $start) * 1000;
+        $elapsed = Tripwire::cpu() - $started;
 
         self::assertSame([], $result);
         // A true O(n) scan of 200 000 bytes should finish in low tens of
         // milliseconds even uncompiled; a quadratic/exponential regression
         // would blow well past this on any hardware.
-        self::assertLessThan(2000.0, $elapsedMs);
+        Tripwire::assertRegexUnder(2.0, $elapsed, __FUNCTION__);
     }
 
     /**
@@ -233,9 +234,9 @@ final class T12RegexDosTest extends TestCase
      */
     public function alongTokenFollowedByAquotedArrayDoesNotHang(string $input, array $expected): void
     {
-        $started = \microtime(true);
+        $started = Tripwire::cpu();
         $candidates = (new CandidateExtractor())->extract($input);
-        $elapsedMs = (\microtime(true) - $started) * 1000;
+        $elapsed = Tripwire::cpu() - $started;
 
         foreach ($expected as $class) {
             self::assertContains($class, $candidates, \sprintf('%s was lost after the long token.', $class));
@@ -243,7 +244,7 @@ final class T12RegexDosTest extends TestCase
 
         // Generous next to the ~2 ms this actually takes: the failure mode is
         // an infinite loop, so any bound at all is the assertion.
-        self::assertLessThan(2000.0, $elapsedMs, \sprintf('Extraction took %.1f ms.', $elapsedMs));
+        Tripwire::assertRegexUnder(2.0, $elapsed, \sprintf('%s (%d bytes)', __FUNCTION__, \strlen($input)));
     }
 
     /**

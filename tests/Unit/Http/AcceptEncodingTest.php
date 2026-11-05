@@ -6,6 +6,7 @@ namespace TailwindPhp\Tests\Unit\Http;
 
 use PHPUnit\Framework\TestCase;
 use TailwindPhp\Http\AcceptEncoding;
+use TailwindPhp\Tests\Support\Tripwire;
 
 /**
  * `Accept-Encoding` negotiation, RFC 7231 §5.3.4 (TASK-0016 acceptance 3).
@@ -119,9 +120,9 @@ final class AcceptEncodingTest extends TestCase
     public function alongHostileHeaderIsCheapToParse(): void
     {
         $header = \str_repeat('deflate;q=0.5, ', 5000) . 'gzip';
-        $started = \microtime(true);
+        $started = Tripwire::cpu();
 
         self::assertTrue(AcceptEncoding::parse($header)->accepts('gzip'));
-        self::assertLessThan(1000.0, (\microtime(true) - $started) * 1000);
+        Tripwire::assertUnder(5.0, Tripwire::cpu() - $started, __FUNCTION__);
     }
 }

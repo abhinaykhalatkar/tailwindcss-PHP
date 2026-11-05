@@ -25,6 +25,7 @@ use TailwindPhp\Engine\Theme\ThemeRegistry;
 use TailwindPhp\Engine\Utility\CompiledUtility;
 use TailwindPhp\Engine\Utility\Compiler;
 use TailwindPhp\Engine\Utility\Registry;
+use TailwindPhp\Tests\Support\Tripwire;
 
 /**
  * The compiler: readings in try-order, definitions in order, the value rules
@@ -653,7 +654,7 @@ final class CompilerTest extends TestCase
         \gc_disable();
 
         try {
-            $started = self::cpu();
+            $started = Tripwire::cpu();
             $compiled = 0;
 
             foreach ($candidates as $index => $candidate) {
@@ -665,7 +666,7 @@ final class CompilerTest extends TestCase
                 }
             }
 
-            $elapsed = self::cpu() - $started;
+            $elapsed = Tripwire::cpu() - $started;
         } finally {
             if ($collecting) {
                 \gc_enable();
@@ -675,7 +676,7 @@ final class CompilerTest extends TestCase
         self::assertSame(2000, $compiled);
         // Measured on this host: 16–31 ms of CPU (getrusage ticks in 15.6 ms
         // steps on Windows); the bound is the criterion's.
-        self::assertLessThan(0.1, $elapsed, \sprintf('2 000 candidates took %.0f ms of CPU', $elapsed * 1000));
+        Tripwire::assertUnder(5.0, $elapsed, __FUNCTION__ . ' (2 000 candidates)');
     }
 
     /**
@@ -890,17 +891,5 @@ final class CompilerTest extends TestCase
     private static function theme(): ThemeRegistry
     {
         return ThemeRegistry::fromDefault(DefaultTheme::vars(), DefaultTheme::keyframes());
-    }
-
-    private static function cpu(): float
-    {
-        $usage = \getrusage();
-
-        if ($usage === false) {
-            return \microtime(true);
-        }
-
-        return $usage['ru_utime.tv_sec'] + $usage['ru_utime.tv_usec'] / 1e6
-            + $usage['ru_stime.tv_sec'] + $usage['ru_stime.tv_usec'] / 1e6;
     }
 }

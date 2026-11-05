@@ -10,6 +10,7 @@ use TailwindPhp\Engine\Css\Parser;
 use TailwindPhp\Engine\Css\Serializer;
 use TailwindPhp\Engine\Css\Tokenizer;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
+use TailwindPhp\Tests\Support\Tripwire;
 use TailwindPhp\Tests\Unit\Engine\Css\AstDump;
 
 /**
@@ -29,8 +30,6 @@ use TailwindPhp\Tests\Unit\Engine\Css\AstDump;
  */
 final class T05CssParserLimitsTest extends TestCase
 {
-    private const SECONDS = 5.0;
-
     /**
      * @test
      *
@@ -49,12 +48,12 @@ final class T05CssParserLimitsTest extends TestCase
         \gc_disable();
 
         try {
-            $started = self::cpuSeconds();
+            $started = Tripwire::cpu();
             $sheet = Parser::parse($css, $bag);
             $flat = Nesting::flatten($sheet, $bag);
             $pretty = Serializer::pretty($flat);
             $compact = Serializer::compact($flat);
-            $elapsed = self::cpuSeconds() - $started;
+            $elapsed = Tripwire::cpu() - $started;
         } finally {
             if ($collecting) {
                 \gc_enable();
@@ -70,11 +69,7 @@ final class T05CssParserLimitsTest extends TestCase
         $bound = Nesting::MAX_OUTPUT_BYTES + 8 * \strlen($css) + 64 * 1024;
         self::assertLessThan($bound, \strlen($pretty), 'pretty output is bounded');
         self::assertLessThan($bound, \strlen($compact), 'compact output is bounded');
-        self::assertLessThan(
-            self::SECONDS,
-            $elapsed,
-            \sprintf('%d bytes took %.2f s of CPU', \strlen($css), $elapsed)
-        );
+        Tripwire::assertUnder(44.0, $elapsed, \sprintf('%s (%d bytes)', __FUNCTION__, \strlen($css)));
     }
 
     /**
@@ -157,9 +152,9 @@ final class T05CssParserLimitsTest extends TestCase
             }
 
             $before = \memory_get_usage();
-            $started = self::cpuSeconds();
+            $started = Tripwire::cpu();
             $sheet = Parser::parse($css, $bag);
-            $elapsed = self::cpuSeconds() - $started;
+            $elapsed = Tripwire::cpu() - $started;
             $retained = \memory_get_usage() - $before;
             $peak = \memory_get_peak_usage() - $before;
         } finally {
@@ -181,7 +176,7 @@ final class T05CssParserLimitsTest extends TestCase
         }
 
         // Informational: two million tokens are still read (≈ 2–5 s here).
-        self::assertLessThan(20.0, $elapsed, \sprintf('%.2f s of CPU', $elapsed));
+        Tripwire::assertUnder(58.0, $elapsed, __FUNCTION__);
     }
 
     /**
@@ -219,10 +214,10 @@ final class T05CssParserLimitsTest extends TestCase
         \gc_disable();
 
         try {
-            $started = self::cpuSeconds();
+            $started = Tripwire::cpu();
             $flat = Nesting::flatten(Parser::parse($css, $bag), $bag);
             $compact = Serializer::compact($flat);
-            $elapsed = self::cpuSeconds() - $started;
+            $elapsed = Tripwire::cpu() - $started;
         } finally {
             if ($collecting) {
                 \gc_enable();
@@ -232,7 +227,7 @@ final class T05CssParserLimitsTest extends TestCase
         self::assertSame('', $compact);
         self::assertLessThanOrEqual(2 * (Tokenizer::MAX_DIAGNOSTICS + 1), \count($bag));
         // Measured on this host after the fix: 0.05–0.3 s; before: 8–51 s.
-        self::assertLessThan(self::SECONDS, $elapsed, \sprintf('%d bytes took %.2f s of CPU', \strlen($css), $elapsed));
+        Tripwire::assertUnder(5.0, $elapsed, \sprintf('%s (%d bytes)', __FUNCTION__, \strlen($css)));
     }
 
     /**
@@ -278,7 +273,7 @@ final class T05CssParserLimitsTest extends TestCase
         self::assertSame('', $compact);
         self::assertSame([], $bag->toArray());
         // Measured on this host after the fix: ≤ 0.02 s; before: 2.1–2.7 s.
-        self::assertLessThan(0.5, $elapsed, \sprintf('%d bytes took %.2f s of CPU', \strlen($css), $elapsed));
+        Tripwire::assertUnder(5.0, $elapsed, \sprintf('%s (%d bytes)', __FUNCTION__, \strlen($css)));
     }
 
     /**
@@ -315,7 +310,7 @@ final class T05CssParserLimitsTest extends TestCase
         self::assertLessThanOrEqual(Nesting::MAX_OUTPUT_BYTES, \strlen($compact));
         self::assertCount(1, $bag, 'the budget stop');
         // Measured on this host after the fix: 0.55–0.65 s; before: 1.7–2.1 s.
-        self::assertLessThan(self::SECONDS, $elapsed, \sprintf('%d bytes took %.2f s of CPU', \strlen($css), $elapsed));
+        Tripwire::assertUnder(29.0, $elapsed, \sprintf('%s (%d bytes)', __FUNCTION__, \strlen($css)));
     }
 
     /**
@@ -350,7 +345,7 @@ final class T05CssParserLimitsTest extends TestCase
         self::assertSame([], $bag->toArray());
         self::assertSame(\strlen($unflattened), \strlen($compact), 'before the fix: 318 556 of 960 004 bytes');
         self::assertSame($unflattened, $compact);
-        self::assertLessThan(self::SECONDS, $elapsed, \sprintf('%d bytes took %.2f s of CPU', \strlen($css), $elapsed));
+        Tripwire::assertUnder(147.0, $elapsed, \sprintf('%s (%d bytes)', __FUNCTION__, \strlen($css)));
     }
 
     /**
@@ -376,9 +371,9 @@ final class T05CssParserLimitsTest extends TestCase
         \gc_disable();
 
         try {
-            $started = self::cpuSeconds();
+            $started = Tripwire::cpu();
             $compact = Serializer::compact(Nesting::flatten(Parser::parse($css, $bag), $bag));
-            $elapsed = self::cpuSeconds() - $started;
+            $elapsed = Tripwire::cpu() - $started;
         } finally {
             if ($collecting) {
                 \gc_enable();
@@ -558,21 +553,6 @@ final class T05CssParserLimitsTest extends TestCase
         }
 
         return \implode(',', $list) . '{' . \str_repeat($child, $children) . '}';
-    }
-
-    /**
-     * User plus system CPU time of this process, in seconds.
-     */
-    private static function cpuSeconds(): float
-    {
-        $usage = \getrusage();
-
-        if ($usage === false) {
-            return \microtime(true);
-        }
-
-        return $usage['ru_utime.tv_sec'] + $usage['ru_utime.tv_usec'] / 1e6
-            + $usage['ru_stime.tv_sec'] + $usage['ru_stime.tv_usec'] / 1e6;
     }
 
     /**

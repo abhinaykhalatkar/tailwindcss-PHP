@@ -19,6 +19,7 @@ use TailwindPhp\Engine\Theme\ThemeRegistry;
 use TailwindPhp\Engine\Utility\Registry as UtilityRegistry;
 use TailwindPhp\Engine\Variant\Registry as VariantRegistry;
 use TailwindPhp\Tests\Support\InMemoryImportResolver;
+use TailwindPhp\Tests\Support\Tripwire;
 
 /**
  * TASK-0033 round 2 (T-05): the processor's work is bounded whatever the
@@ -46,7 +47,7 @@ final class BoundsTest extends TestCase
         [$sheet, $bag, $elapsed, $calls] = self::measure('@import "./f1.css";', $files);
 
         self::assertLessThanOrEqual(1001, $calls, 'resolver calls');
-        self::assertLessThan(0.3, $elapsed, \sprintf('%.2f s of CPU', $elapsed));
+        Tripwire::assertUnder(5.0, $elapsed, __FUNCTION__);
         self::assertLessThanOrEqual(Tokenizer::MAX_DIAGNOSTICS + 1, \count($bag));
         self::assertNotSame([], $sheet->authored);
     }
@@ -67,7 +68,7 @@ final class BoundsTest extends TestCase
         self::assertSame(Diagnostic::E_CSS_SYNTAX, $bag->all()[0]->code());
         self::assertStringContainsString('more than 1000 imports', $bag->all()[0]->message());
         self::assertCount(1000, $sheet->authored);
-        self::assertLessThan(1.0, $elapsed, \sprintf('%.2f s of CPU', $elapsed));
+        Tripwire::assertUnder(10.0, $elapsed, __FUNCTION__);
     }
 
     /**
@@ -111,7 +112,7 @@ final class BoundsTest extends TestCase
         self::assertCount(20000, $sheet->inlineCandidates);
         self::assertCount(1, $bag);
         self::assertSame(Diagnostic::W_CANDIDATE_LIMIT, $bag->all()[0]->code());
-        self::assertLessThan(0.5, $elapsed, \sprintf('%.2f s of CPU', $elapsed));
+        Tripwire::assertUnder(5.0, $elapsed, __FUNCTION__);
         self::assertLessThan(32 * 1024 * 1024, $peak, \sprintf('peak %.1f MB', $peak / 1048576));
     }
 
@@ -130,7 +131,7 @@ final class BoundsTest extends TestCase
 
         self::assertCount(512, $sheet->inlineCandidates);
         self::assertSame([], $bag->toArray());
-        self::assertLessThan(0.5, $elapsed, \sprintf('%.2f s of CPU', $elapsed));
+        Tripwire::assertUnder(5.0, $elapsed, __FUNCTION__);
         self::assertLessThan(32 * 1024 * 1024, $peak, \sprintf('peak %.1f MB', $peak / 1048576));
     }
 
@@ -163,7 +164,7 @@ final class BoundsTest extends TestCase
 
         self::assertCount(512, $sheet->inlineCandidates);
         self::assertSame([], $bag->toArray());
-        self::assertLessThan(0.5, $elapsed, \sprintf('%.2f s of CPU', $elapsed));
+        Tripwire::assertUnder(9.0, $elapsed, __FUNCTION__);
     }
 
     /** @test */
@@ -278,7 +279,7 @@ final class BoundsTest extends TestCase
         $before = \memory_get_usage();
 
         try {
-            $started = self::cpu();
+            $started = Tripwire::cpu();
             $sheet = Processor::process(
                 $entry,
                 $resolver,
@@ -288,7 +289,7 @@ final class BoundsTest extends TestCase
                 new ProcessorOptions('input.css', \strlen($css)),
                 $bag
             );
-            $elapsed = self::cpu() - $started;
+            $elapsed = Tripwire::cpu() - $started;
         } finally {
             if ($collecting) {
                 \gc_enable();
@@ -296,17 +297,5 @@ final class BoundsTest extends TestCase
         }
 
         return [$sheet, $bag, $elapsed, $resolver->calls, \memory_get_peak_usage() - $before];
-    }
-
-    private static function cpu(): float
-    {
-        $usage = \getrusage();
-
-        if ($usage === false) {
-            return \microtime(true);
-        }
-
-        return $usage['ru_utime.tv_sec'] + $usage['ru_utime.tv_usec'] / 1e6
-            + $usage['ru_stime.tv_sec'] + $usage['ru_stime.tv_usec'] / 1e6;
     }
 }

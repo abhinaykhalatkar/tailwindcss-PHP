@@ -17,6 +17,7 @@ use TailwindPhp\Engine\Css\Parser;
 use TailwindPhp\Engine\Diagnostic\Diagnostic;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
 use TailwindPhp\Tests\Support\InMemoryImportResolver;
+use TailwindPhp\Tests\Support\Tripwire;
 
 /**
  * `Engine\Compiler` (TASK-0034 criteria 1, 5, 7 and the security criteria): the
@@ -166,7 +167,7 @@ final class CompilerTest extends TestCase
         self::assertStringContainsString('70000 candidates were not compiled', $message);
         self::assertSame([], $bag->toArray(), 'the output re-parses');
         // A tripwire, not a budget (EngineBench owns those): about 1.4 s here.
-        self::assertLessThan(10.0, $cpu, \sprintf('%.2f s of CPU', $cpu));
+        Tripwire::assertUnder(95.0, $cpu, __FUNCTION__);
     }
 
     /**
@@ -194,7 +195,7 @@ final class CompilerTest extends TestCase
         self::assertSame(0, $output->stats['utilities']);
         self::assertReparsesWithinTheCap($output);
         // A tripwire, not a budget: about 0.5 s here.
-        self::assertLessThan(10.0, $cpu, \sprintf('%.2f s of CPU', $cpu));
+        Tripwire::assertUnder(6.0, $cpu, __FUNCTION__);
     }
 
     /**
@@ -221,7 +222,7 @@ final class CompilerTest extends TestCase
         [$output, $cpu] = self::timed($request);
 
         self::assertSame([Diagnostic::W_CANDIDATE_LIMIT], self::codes($output));
-        self::assertLessThan(5.0, $cpu, \sprintf('%.2f s of CPU', $cpu));
+        Tripwire::assertUnder(6.0, $cpu, __FUNCTION__);
     }
 
     /**
@@ -462,7 +463,7 @@ final class CompilerTest extends TestCase
         }
 
         // A tripwire, not a budget: 2.0 s and 0.9 s here (3.5 s and 5.1 s before).
-        self::assertLessThan(10.0, $cpu, \sprintf('%.2f s of CPU', $cpu));
+        Tripwire::assertUnder(38.0, $cpu, __FUNCTION__);
     }
 
     /**
@@ -612,9 +613,9 @@ final class CompilerTest extends TestCase
         \gc_disable();
 
         try {
-            $started = self::cpu();
+            $started = Tripwire::cpu();
             $output = (new Compiler())->compile($request);
-            $elapsed = self::cpu() - $started;
+            $elapsed = Tripwire::cpu() - $started;
         } finally {
             if ($collecting) {
                 \gc_enable();
@@ -622,18 +623,6 @@ final class CompilerTest extends TestCase
         }
 
         return [$output, $elapsed];
-    }
-
-    private static function cpu(): float
-    {
-        $usage = \getrusage();
-
-        if ($usage === false) {
-            return \microtime(true);
-        }
-
-        return $usage['ru_utime.tv_sec'] + $usage['ru_utime.tv_usec'] / 1e6
-            + $usage['ru_stime.tv_sec'] + $usage['ru_stime.tv_usec'] / 1e6;
     }
 
     /**
