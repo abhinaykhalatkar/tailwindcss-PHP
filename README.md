@@ -99,7 +99,7 @@ writable, and what to fix if something is off.
 | Driver | When | Fidelity |
 |--------|------|----------|
 | `cli` | `proc_open` available and the official standalone binary installed (`vendor/bin/tailwind-php install-cli`, checksum-verified) | 100 % — it *is* Tailwind |
-| `php` | Always available. Pure PHP, no process, no network | Tailwind v4.1 semantics for the Tier-1 utilities and variants. Measured against the official CLI 4.1.18 on 5 739 corpus candidates: 99.7 % identical, every difference listed in `docs/compat/KNOWN-DIFFERENCES.md` |
+| `php` | Always available. Pure PHP, no process, no network | Tailwind v4.1 semantics for the Tier-1 utilities and variants. Measured against the official CLI 4.1.18 on 5 791 corpus candidates: 99.7 % identical, every difference listed in `docs/compat/KNOWN-DIFFERENCES.md` |
 
 `driver: auto` (default) picks `cli` when it is safe and available, else `php`.
 
