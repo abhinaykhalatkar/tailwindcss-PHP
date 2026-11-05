@@ -425,7 +425,7 @@ final class CompileProfiler
             $flatBytes += $bytes;
 
             foreach ($flatNodes as $node) {
-                $flatSet->attach($node);
+                $flatSet->offsetSet($node);
             }
 
             foreach ($compiled->usedVars as $name) {

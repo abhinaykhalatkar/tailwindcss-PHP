@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `proc_terminate`, `proc_close`), an explicit `driver: cli` is refused with the driver-unavailable
   exception (exit code 2 from the console) instead of a PHP error, and `driver: auto` uses the PHP
   engine there, naming the missing function.
+- Nothing the library calls is deprecated on PHP 8.5 (`SplObjectStorage::contains()`/`attach()`
+  and `curl_close()` are no longer used), and the test suites now fail on any PHP deprecation
+  raised by first-party code.
 
 ### Added
 

@@ -166,7 +166,6 @@ final class AtomicWriterTest extends TestCase
         $target = $this->root . '/app.css';
 
         $method = new ReflectionMethod(AtomicWriter::class, 'temporaryNameFor');
-        $method->setAccessible(true);
 
         $temp = $method->invoke($this->writer, $target);
 

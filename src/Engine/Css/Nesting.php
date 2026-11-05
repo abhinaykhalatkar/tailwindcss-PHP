@@ -261,7 +261,7 @@ final class Nesting
                 return;
             }
 
-            if ($context === null && $this->flat !== null && $this->flat->contains($node)) {
+            if ($context === null && $this->flat !== null && $this->flat->offsetExists($node)) {
                 if ($this->admit(self::nodeCount($node), null)) {
                     $out[] = $node;
                 }
@@ -537,7 +537,7 @@ final class Nesting
      */
     private function emitsAnything(Rule $rule, int $depth = 0): bool
     {
-        if ($this->emits->contains($rule)) {
+        if ($this->emits->offsetExists($rule)) {
             return (bool) $this->emits[$rule];
         }
 

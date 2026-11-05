@@ -233,7 +233,7 @@ final class Compiler
             $flatBytes += $bytes;
 
             foreach ($flat as $node) {
-                $flatNodes->attach($node);
+                $flatNodes->offsetSet($node);
             }
 
             foreach ($compiled->usedVars as $name) {

@@ -534,8 +534,9 @@ final class InstallCliCommand extends AbstractCommand
             $output->error('Download failed: ' . $reason . '. ' . $this->manualInstructions($url));
         }
 
-        \curl_close($curl);
-
+        // No `curl_close()`: a no-op since PHP 8.0, deprecated in 8.5. The
+        // handle (and the write callback holding $handle) is released when
+        // $curl goes out of scope on return, before the caller's `fclose()`.
         return $ok;
     }
 

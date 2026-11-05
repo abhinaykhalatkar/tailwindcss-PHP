@@ -1,5 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<phpunit bootstrap="tests/bootstrap.php" colors="true">
+<!--
+    A PHP deprecation raised by first-party code fails the suites (TASK-0063,
+    doc 14): `failOnDeprecation` with the count restricted to `<source>`, so a
+    dependency's own deprecations (scssphp 1.12 on PHP 8.4, say) do not count.
+    PHPUnit's own deprecations are a separate counter and do not fail.
+
+    `restrictDeprecations` is the attribute both supported PHPUnit lines honour:
+    10.5 validates it; 11.5 still applies it and reports one PHPUnit deprecation
+    ("validates against a deprecated schema"). Its 11.x replacement,
+    `ignoreIndirectDeprecations`, fails 10.5's schema and is ignored there.
+-->
+<phpunit bootstrap="tests/bootstrap.php" colors="true" failOnDeprecation="true">
     <testsuites>
         <testsuite name="Unit">
             <directory>tests/Unit</directory>
@@ -17,4 +28,15 @@
             <directory>tests/Benchmark</directory>
         </testsuite>
     </testsuites>
+    <source restrictDeprecations="true">
+        <include>
+            <directory>src</directory>
+            <directory>tools</directory>
+            <directory>tests</directory>
+            <file>bin/tailwind-php</file>
+        </include>
+        <exclude>
+            <directory>tools/php-cs-fixer</directory>
+        </exclude>
+    </source>
 </phpunit>

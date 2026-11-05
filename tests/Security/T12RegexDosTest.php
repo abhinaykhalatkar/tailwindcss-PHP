@@ -265,7 +265,6 @@ final class T12RegexDosTest extends TestCase
     {
         $extractor = new CandidateExtractor();
         $method = new \ReflectionMethod($extractor, 'consumeRun');
-        $method->setAccessible(true);
 
         $alphabet = ['[', ']', '(', ')', '"', "'", '@', '-', ':', '!', ' ', "\n", 'a'];
         $inputs = $alphabet;

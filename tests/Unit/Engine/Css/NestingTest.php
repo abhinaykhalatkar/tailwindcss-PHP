@@ -711,7 +711,7 @@ final class NestingTest extends TestCase
         $set = new \SplObjectStorage();
 
         foreach ($flat as $node) {
-            $set->attach($node);
+            $set->offsetSet($node);
         }
 
         $sheet = new StyleSheet([new AtRule('layer', 'utilities', $flat)]);
@@ -739,7 +739,7 @@ final class NestingTest extends TestCase
 
         for ($i = 0; $i < 50001; ++$i) {
             $rule = new Rule('.a' . $i, [new Declaration('x', 'y')]);
-            $set->attach($rule);
+            $set->offsetSet($rule);
             $nodes[] = $rule;
         }
 
