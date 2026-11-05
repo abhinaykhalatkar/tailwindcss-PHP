@@ -36,11 +36,16 @@ final class VariantsTest extends TestCase
     ];
 
     /**
+     * An at-rule wrapper with no query, between `dark` and `print` in the CLI's order (TASK-0052).
+     */
+    private const AT_RULES = ['starting'];
+
+    /**
      * Doc 08 §Variants rows that are T2 (or later): none of them may be in the table yet.
      */
     private const NOT_YET = [
         'has', 'not', 'in', 'data', 'aria', 'nth', 'nth-last', 'nth-of-type', 'nth-last-of-type', 'supports',
-        'ltr', 'rtl', 'starting', '@', 'forced', 'force',
+        'ltr', 'rtl', '@', 'forced', 'force',
     ];
 
     /**
@@ -56,7 +61,7 @@ final class VariantsTest extends TestCase
         'focus-within', 'hover', 'focus', 'focus-visible', 'active', 'enabled', 'disabled', 'inert',
         'motion-safe', 'motion-reduce', 'contrast-more', 'contrast-less',
         'max', 'min',
-        'portrait', 'landscape', 'dark', 'print', 'forced-colors', 'inverted-colors', 'pointer-none',
+        'portrait', 'landscape', 'dark', 'starting', 'print', 'forced-colors', 'inverted-colors', 'pointer-none',
         'pointer-coarse', 'pointer-fine', 'any-pointer-none', 'any-pointer-coarse', 'any-pointer-fine', 'noscript',
     ];
 
@@ -68,6 +73,7 @@ final class VariantsTest extends TestCase
             self::PSEUDO_CLASSES,
             self::PSEUDO_ELEMENTS,
             self::MEDIA,
+            self::AT_RULES,
             ['*', '**', 'group', 'peer', 'min', 'max']
         );
 

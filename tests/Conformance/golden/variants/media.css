@@ -335,6 +335,46 @@
       text-decoration-line: underline;
     }
   }
+  .starting\:flex {
+    @starting-style {
+      display: flex;
+    }
+  }
+  .starting\:underline {
+    @starting-style {
+      text-decoration-line: underline;
+    }
+  }
+  .starting\:hover\:flex {
+    @starting-style {
+      &:hover {
+        @media (hover: hover) {
+          display: flex;
+        }
+      }
+    }
+  }
+  .md\:starting\:flex {
+    @media (width >= 48rem) {
+      @starting-style {
+        display: flex;
+      }
+    }
+  }
+  .starting\:md\:flex {
+    @starting-style {
+      @media (width >= 48rem) {
+        display: flex;
+      }
+    }
+  }
+  .dark\:starting\:flex {
+    @media (prefers-color-scheme: dark) {
+      @starting-style {
+        display: flex;
+      }
+    }
+  }
   .print\:flex {
     @media print {
       display: flex;

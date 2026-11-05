@@ -575,13 +575,68 @@ final class ThemeRegistryTest extends TestCase
      */
     public function onlyTheTwoSeededDefaultsAreUnsetWhenTheirSourceIsGone(): void
     {
-        $registry = new ThemeRegistry();
-        $flags = new ThemeFlags(false, false, false, true);
-        $registry->merge(['--zz' => 'var(--nope)', '--default-font-family' => 'var(--nope)'], $flags);
+        $registry = $this->defaults();
+        $registry->merge(['--font-*' => 'initial'], ThemeFlags::none());
+        $registry->merge(['--zz' => 'var(--nope)'], new ThemeFlags(false, false, false, true));
         $registry->markUsed('--zz');
         $registry->markUsed('--default-font-family');
 
         self::assertSame(['--zz' => 'var(--nope)'], $registry->emittable());
+    }
+
+    /**
+     * A user's own `@theme default { --default-font-family: var(--nope) }` is an ordinary variable: the CLI emits it as
+     * written (probed, TASK-0052), the seeded definition of the same name is dropped once its source is gone.
+     *
+     * @test
+     *
+     * @dataProvider userDefaults
+     *
+     * @param array<string, string> $authored
+     * @param array<string, string> $expected
+     */
+    public function aUserDefinitionOfASeededDefaultIsEmittedAsWritten(
+        array $authored,
+        bool $default,
+        array $expected
+    ): void {
+        $registry = $this->defaults();
+        $registry->merge($authored, new ThemeFlags(false, false, false, $default));
+        $registry->merge(['--font-*' => 'initial'], ThemeFlags::none());
+        $registry->markUsed('--default-font-family');
+        $registry->markUsed('--default-mono-font-family');
+
+        self::assertSame($expected, $registry->emittable());
+    }
+
+    /**
+     * @return array<string, array{0: array<string, string>, 1: bool, 2: array<string, string>}>
+     */
+    public static function userDefaults(): array
+    {
+        return [
+            'a default block, the sans default' => [
+                ['--default-font-family' => 'var(--nope)'],
+                true,
+                ['--default-font-family' => 'var(--nope)'],
+            ],
+            'a default block, the mono default' => [
+                ['--default-mono-font-family' => 'var(--nope)'],
+                true,
+                ['--default-mono-font-family' => 'var(--nope)'],
+            ],
+            'an ordinary block' => [
+                ['--default-font-family' => 'var(--nope)'],
+                false,
+                ['--default-font-family' => 'var(--nope)'],
+            ],
+            'a literal in a default block' => [
+                ['--default-font-family' => 'Georgia'],
+                true,
+                ['--default-font-family' => 'Georgia'],
+            ],
+            'another name is untouched' => [['--zz' => 'var(--nope)'], true, []],
+        ];
     }
 
     /**

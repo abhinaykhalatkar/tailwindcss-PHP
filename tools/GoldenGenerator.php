@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace TailwindPhp\Tools;
 
+use TailwindPhp\Tests\Conformance\Support\CandidateAttribution;
 use TailwindPhp\Tests\Conformance\Support\CorpusPaths;
 
 /**
@@ -54,11 +55,6 @@ final class GoldenGenerator
     private const BANNER_START = '/*! tailwindcss v';
 
     private const UTILITIES_LAYER = '@layer utilities';
-
-    /**
-     * U+FFFD, what CSS substitutes for an escape that names no character.
-     */
-    private const REPLACEMENT = "\xEF\xBF\xBD";
 
     private const HEX = '0123456789abcdefABCDEF';
 
@@ -219,49 +215,9 @@ final class GoldenGenerator
      */
     public static function unescapeIdentifier(string $escaped): string
     {
-        $length = \strlen($escaped);
-        $result = '';
-        $i = 0;
-
-        while ($i < $length) {
-            $byte = $escaped[$i];
-
-            if ($byte !== '\\') {
-                $result .= $byte;
-                ++$i;
-
-                continue;
-            }
-
-            ++$i;
-
-            if ($i >= $length) {
-                $result .= self::REPLACEMENT;
-
-                break;
-            }
-
-            if (\strspn($escaped[$i], self::HEX) === 1) {
-                $digits = self::hexRun($escaped, $i);
-                $i += \strlen($digits);
-                $i += self::terminatorLength($escaped, $i);
-                $result .= self::codePoint((int) \hexdec($digits));
-
-                continue;
-            }
-
-            // An escaped literal. A multibyte character is copied whole: its
-            // continuation bytes (10xxxxxx) belong to the same character.
-            $result .= $escaped[$i];
-            ++$i;
-
-            while ($i < $length && (\ord($escaped[$i]) & 0xC0) === 0x80 && (\ord($escaped[$i - 1]) & 0x80) !== 0) {
-                $result .= $escaped[$i];
-                ++$i;
-            }
-        }
-
-        return $result;
+        // One implementation: the byte scanner of the comparator's attribution, which is the one that moves to
+        // `src/` with it; this tool already reads the conformance support code (TASK-0052).
+        return CandidateAttribution::unescapeIdentifier($escaped);
     }
 
     /**
@@ -720,33 +676,6 @@ final class GoldenGenerator
         }
 
         return $text[$at] === "\r" && $at + 1 < \strlen($text) && $text[$at + 1] === "\n" ? 2 : 1;
-    }
-
-    /**
-     * UTF-8 for a code point, or U+FFFD when it names no character.
-     */
-    private static function codePoint(int $code): string
-    {
-        if ($code === 0 || $code > 0x10FFFF || ($code >= 0xD800 && $code <= 0xDFFF)) {
-            return self::REPLACEMENT;
-        }
-
-        if ($code < 0x80) {
-            return \chr($code);
-        }
-
-        if ($code < 0x800) {
-            return \chr(0xC0 | ($code >> 6)) . \chr(0x80 | ($code & 0x3F));
-        }
-
-        if ($code < 0x10000) {
-            return \chr(0xE0 | ($code >> 12)) . \chr(0x80 | (($code >> 6) & 0x3F)) . \chr(0x80 | ($code & 0x3F));
-        }
-
-        return \chr(0xF0 | ($code >> 18))
-            . \chr(0x80 | (($code >> 12) & 0x3F))
-            . \chr(0x80 | (($code >> 6) & 0x3F))
-            . \chr(0x80 | ($code & 0x3F));
     }
 
     /**

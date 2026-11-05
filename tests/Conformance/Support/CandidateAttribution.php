@@ -26,9 +26,8 @@ use TailwindPhp\Engine\Css\SelectorList;
  * authored CSS or something the candidate list does not account for.
  *
  * No regular expressions, no PHPUnit: this is a byte scanner that can be
- * promoted into `src/` unchanged. `unescapeIdentifier()` duplicates the one in
- * `tools/GoldenGenerator.php`, which cannot be shared because test support must
- * not depend on `tools/`; moving both here is proposed in the TASK-0030 report.
+ * promoted into `src/` unchanged. `unescapeIdentifier()` is the one implementation:
+ * `tools/GoldenGenerator::unescapeIdentifier()` delegates to it (TASK-0052).
  */
 final class CandidateAttribution
 {

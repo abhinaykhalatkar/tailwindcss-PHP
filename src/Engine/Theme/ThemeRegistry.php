@@ -85,6 +85,11 @@ final class ThemeRegistry
     private const SPACE = " \t\r\n\f";
 
     /**
+     * @var array<string, true> The names of {@see self::UNSET_DEFAULTS} still holding their first, default definition.
+     */
+    private $seeded = [];
+
+    /**
      * @var array<string, array{0: string, 1: int}>
      */
     private $vars = [];
@@ -177,6 +182,16 @@ final class ThemeRegistry
 
             if ($flags->isDefault() && isset($this->vars[$name]) && !$this->isDefaultVar($name)) {
                 continue;
+            }
+
+            // The seeded definition of a name v4 writes as `--theme(--x, initial)` is its first one, in a default block
+            // (`theme.css`); a later definition of it, a user's own `@theme default` included, is an ordinary variable.
+            if (isset(self::UNSET_DEFAULTS[$name])) {
+                if (isset($this->vars[$name])) {
+                    unset($this->seeded[$name]);
+                } elseif ($flags->isDefault()) {
+                    $this->seeded[$name] = true;
+                }
             }
 
             $this->vars[$name] = [$value, $bits];
@@ -429,12 +444,14 @@ final class ThemeRegistry
      * is not defined: v4 writes those as `--theme(--x, initial)`
      * (`--default-font-family`, `--default-mono-font-family`), so once `--x` is
      * reset the variable is `initial` — not emitted, and not followed. Only
-     * those two names qualify: any other variable, in a default block or not,
-     * is emitted as written whatever it reads.
+     * those two names qualify, and only as the seeded default theme defines
+     * them: a variable of any other name, a user's own definition of these two
+     * (`@theme default { --default-font-family: var(--nope) }`) and any
+     * variable outside a default block is emitted as written whatever it reads.
      */
     private function isUnsetDefault(string $name): bool
     {
-        if (!isset(self::UNSET_DEFAULTS[$name]) || !$this->isDefaultVar($name)) {
+        if (!isset($this->seeded[$name]) || !$this->isDefaultVar($name)) {
             return false;
         }
 

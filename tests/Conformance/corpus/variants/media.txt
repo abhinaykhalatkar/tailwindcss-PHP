@@ -86,3 +86,11 @@ noscript:flex
 noscript:bg-red-500
 noscript:text-center
 noscript:underline
+
+# starting-style: an at-rule wrapper with no query, in its own place in the variant order
+starting:flex
+starting:underline
+md:starting:flex
+starting:md:flex
+starting:hover:flex
+dark:starting:flex

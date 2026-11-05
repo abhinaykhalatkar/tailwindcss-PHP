@@ -25,7 +25,7 @@ namespace TailwindPhp\Engine\Data;
  *   - arbitrary variants (`[&>*]:`, `[@media(…)]:`) and `min-[…]`/`max-[…]`
  *     are read from the candidate; the `min` and `max` rows are their templates;
  *   - the T2 variants (`has-*`, `not-*`, `in-*`, `data-*`, `aria-*`, `nth-*`,
- *     `supports-*`, `ltr`, `rtl`, `starting`, container queries `@sm …`) are M3.
+ *     `supports-*`, `ltr`, `rtl`, container queries `@sm …`) are M3.
  *
  * **`order`** reproduces v4's variant order, which decides where a variant's rule
  * lands in the sheet (lower sorts first). Source: one `<variant>:flex` candidate
@@ -143,6 +143,7 @@ final class Variants
             'portrait' => ['media' => '(orientation: portrait)', 'order' => 155000],
             'landscape' => ['media' => '(orientation: landscape)', 'order' => 156000],
             'dark' => ['media' => '(prefers-color-scheme: dark)', 'order' => 159000],
+            'starting' => ['starting-style' => true, 'order' => 160000],
             'print' => ['media' => 'print', 'order' => 161000],
             'forced-colors' => ['media' => '(forced-colors: active)', 'order' => 162000],
             'inverted-colors' => ['media' => '(inverted-colors: inverted)', 'order' => 163000],

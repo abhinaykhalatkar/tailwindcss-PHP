@@ -136,17 +136,39 @@ final class Compiler
         $key = self::utilityKey($candidate);
 
         if ($key === null) {
-            return $this->build($candidate, $theme);
+            return self::withReferences($this->build($candidate, $theme), $theme);
         }
 
         if (isset($this->bodies[$key])) {
             return $this->bodies[$key] === false ? null : $this->bodies[$key];
         }
 
-        $result = $this->build($candidate, $theme);
+        $result = self::withReferences($this->build($candidate, $theme), $theme);
         $this->bodies[$key] = $result ?? false;
 
         return $result;
+    }
+
+    /**
+     * $compiled with every theme variable its declarations refer to counted as used.
+     */
+    private static function withReferences(?CompiledUtility $compiled, ThemeRegistry $theme): ?CompiledUtility
+    {
+        if ($compiled === null) {
+            return null;
+        }
+
+        $used = $compiled->usedVars;
+
+        foreach (self::themeReferences($compiled->nodes, $theme) as $name) {
+            if (!\in_array($name, $used, true)) {
+                $used[] = $name;
+            }
+        }
+
+        return $used === $compiled->usedVars
+            ? $compiled
+            : new CompiledUtility($compiled->nodes, $used, $compiled->properties, $compiled->sortKey);
     }
 
     /**
@@ -334,16 +356,7 @@ final class Compiler
     }
 
     /**
-     * Rule 7, opacity, in the 4.1.18 CLI's shape:
-     *
-     * - `100%` leaves the colour as it is;
-     * - a literal colour becomes `color-mix(in oklab, <color> <pct>, transparent)`;
-     * - a colour the browser may not mix (a theme variable, `currentcolor`, any
-     *   `var()`) gets a fallback first — the theme variable's value mixed in
-     *   sRGB (its plain value when the percentage is a variable), otherwise the
-     *   colour unmixed; a theme colour that is itself `currentcolor` or one
-     *   `var()` falls back to its reference, see {@see self::isUnmixable()} — and
-     *   the oklab form under `@supports (color: color-mix(in lab, red, red))`.
+     * Rule 7, opacity: the modifier is resolved and the colour mixed by {@see self::mixOpacity()}.
      *
      * @param array{0: string, 1: list<string>} $color
      *
@@ -357,41 +370,180 @@ final class Compiler
             return null;
         }
 
+        return self::mixOpacity($definition->props(), $color, $opacity, $theme);
+    }
+
+    /**
+     * A colour for $props with an opacity, in the 4.1.18 CLI's shape (shared by the colour rows and the handlers
+     * that write colours themselves, so there is one rule):
+     *
+     * - `100%` leaves the colour as it is;
+     * - a literal colour becomes `color-mix(in oklab, <color> <pct>, transparent)`;
+     * - a colour the browser may not mix ahead of time (a theme variable, `currentcolor`, any `var()`) gets a
+     *   fallback line first, see {@see self::opacityFallback()}, and the oklab form under
+     *   `@supports (color: color-mix(in lab, red, red))`.
+     *
+     * A colour written as one reference to a theme variable (`var(--color-red-500)`, also in an arbitrary value or a
+     * `(--color-red-500)` variable) is the theme colour: its value is what the fallback mixes (the variable is counted
+     * used with every other reference in the output, see {@see self::withReferences()}).
+     *
+     * @param list<string> $props
+     * @param array{0: string, 1: list<string>} $color The value and the theme variables it used.
+     * @param array{0: string, 1: list<string>} $opacity The percentage or `var()` and the variables it used.
+     *
+     * @return array{0: list<Node>, 1: list<string>}
+     */
+    public static function mixOpacity(array $props, array $color, array $opacity, ThemeRegistry $theme): array
+    {
+        $variable = self::themeVariableOf($color[0], $theme);
         $used = \array_values(\array_unique(\array_merge($color[1], $opacity[1])));
 
         if ($opacity[0] === '100%') {
-            return [self::declare($definition, $color[0]), $used];
+            return [self::declareProps($props, $color[0]), $used];
         }
 
         $mixed = 'color-mix(in oklab, ' . $color[0] . ' ' . $opacity[0] . ', transparent)';
-        $variable = \strncmp($color[0], 'var(--', 6) === 0 && $color[1] !== [] ? $theme->get($color[1][0]) : null;
+        $fallback = self::opacityFallback($color[0], $variable === null ? null : $variable[1], $opacity[0]);
 
-        if ($variable !== null) {
-            if (self::isUnmixable($variable->value(), true)) {
-                // A theme colour that is itself `currentcolor` or one variable: the reference is the fallback.
-                $fallback = $color[0];
-            } elseif (\strncmp($opacity[0], 'var(', 4) === 0) {
-                $fallback = $variable->value();
-            } else {
-                $fallback = 'color-mix(in srgb, ' . $variable->value() . ' ' . $opacity[0] . ', transparent)';
-            }
-        } elseif (self::isUnmixable($color[0])) {
-            $fallback = $color[0];
-        } else {
-            return [self::declare($definition, $mixed), $used];
+        if ($fallback === null) {
+            return [self::declareProps($props, $mixed), $used];
         }
 
-        $nodes = [];
-        $supported = [];
-
-        foreach ($definition->props() as $property) {
-            $nodes[] = new Declaration($property, $fallback);
-            $supported[] = new Declaration($property, $mixed);
-        }
-
-        $nodes[] = new AtRule('supports', '(color: color-mix(in lab, red, red))', $supported);
+        $nodes = self::declareProps($props, $fallback);
+        $nodes[] = new AtRule('supports', '(color: color-mix(in lab, red, red))', self::declareProps($props, $mixed));
 
         return [$nodes, $used];
+    }
+
+    /**
+     * The line written before the `@supports` mix of a colour with an opacity, or null when the colour can be mixed
+     * in place (a literal): for a theme colour ($themeValue is the theme variable's value) the reference itself
+     * when the value is `currentcolor` or one `var()`, the plain value when the percentage is a variable, the sRGB
+     * mix of the value otherwise; for any other colour the colour as written when it reads a variable or is
+     * `currentcolor`. One rule for every root and every handler (probed against the pinned CLI).
+     */
+    public static function opacityFallback(string $reference, ?string $themeValue, string $percent): ?string
+    {
+        if ($themeValue !== null) {
+            if (self::isUnmixable($themeValue, true)) {
+                return $reference;
+            }
+
+            return \strncmp($percent, 'var(', 4) === 0
+                ? $themeValue
+                : 'color-mix(in srgb, ' . $themeValue . ' ' . $percent . ', transparent)';
+        }
+
+        return self::isUnmixable($reference) ? $reference : null;
+    }
+
+    /**
+     * {@see self::opacityFallback()} for a root that always writes a fallback line, a literal colour included (the
+     * shadow colours): the sRGB mix of the colour, or the colour itself when the percentage is a variable.
+     */
+    public static function opacityFallbackAlways(string $reference, ?string $themeValue, string $percent): string
+    {
+        $fallback = self::opacityFallback($reference, $themeValue, $percent);
+
+        if ($fallback !== null) {
+            return $fallback;
+        }
+
+        return \strncmp($percent, 'var(', 4) === 0
+            ? $reference
+            : 'color-mix(in srgb, ' . $reference . ' ' . $percent . ', transparent)';
+    }
+
+    /**
+     * The theme variable a colour is one plain reference to: `var(--name)` or `var(--name, fallback)` as a whole,
+     * whose name the theme defines. `[name, value]`, or null for anything else (a literal, `calc(var(--x) …)`, a
+     * name the theme does not define).
+     *
+     * @return array{0: string, 1: string}|null
+     */
+    public static function themeVariableOf(string $color, ThemeRegistry $theme): ?array
+    {
+        if (\strncmp($color, 'var(--', 6) !== 0 || \substr($color, -1) !== ')') {
+            return null;
+        }
+
+        $length = \strspn($color, self::CUSTOM_NAME_BYTES, 6);
+        $rest = (string) \substr($color, 6 + $length);
+
+        if ($rest !== ')' && $rest[0] !== ',') {
+            return null;
+        }
+
+        // The last parenthesis must be the one that closes `var(`.
+        $depth = 1;
+
+        for ($i = 0, $count = \strlen($rest); $i < $count; ++$i) {
+            if ($rest[$i] === '(') {
+                ++$depth;
+            } elseif ($rest[$i] === ')' && --$depth === 0 && $i !== $count - 1) {
+                return null;
+            }
+        }
+
+        $name = '--' . \substr($color, 6, $length);
+        $variable = $theme->get($name);
+
+        return $variable === null ? null : [$name, $variable->value()];
+    }
+
+    /**
+     * The theme variables a utility's declarations read with `var(--name …)`, in order, once each: the CLI emits
+     * every theme variable the generated CSS refers to, whatever wrote the reference (an arbitrary value, a
+     * `(--name)` variable, an arbitrary property).
+     *
+     * @param list<Node> $nodes
+     *
+     * @return list<string>
+     */
+    private static function themeReferences(array $nodes, ThemeRegistry $theme): array
+    {
+        $found = [];
+
+        foreach ($nodes as $node) {
+            if ($node instanceof Declaration) {
+                $offset = 0;
+
+                while (($at = \strpos($node->value, 'var(--', $offset)) !== false) {
+                    $length = \strspn($node->value, self::CUSTOM_NAME_BYTES, $at + 6);
+                    $offset = $at + 6 + $length;
+
+                    if ($length > 0) {
+                        $name = '--' . \substr($node->value, $at + 6, $length);
+
+                        if (!isset($found[$name]) && $theme->get($name) !== null) {
+                            $found[$name] = true;
+                        }
+                    }
+                }
+            } elseif (($node instanceof Rule || $node instanceof AtRule) && $node->nodes !== null) {
+                foreach (self::themeReferences($node->nodes, $theme) as $name) {
+                    $found[$name] = true;
+                }
+            }
+        }
+
+        return \array_keys($found);
+    }
+
+    /**
+     * @param list<string> $props
+     *
+     * @return list<Node>
+     */
+    private static function declareProps(array $props, string $value): array
+    {
+        $nodes = [];
+
+        foreach ($props as $property) {
+            $nodes[] = new Declaration($property, $value);
+        }
+
+        return $nodes;
     }
 
     /**

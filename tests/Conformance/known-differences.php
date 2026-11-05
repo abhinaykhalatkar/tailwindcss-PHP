@@ -33,13 +33,6 @@ return [
         'reason' => 'The CLI keeps the comment in padding: 1px/*x*/; the engine refuses it (T-15).',
         'since' => '4.1.18',
     ],
-    [
-        'candidate' => 'text-[javascript:alert(1)]',
-        'corpus' => 'utilities/edge-rejections',
-        'class' => 'deliberate',
-        'reason' => 'The CLI reads javascript as a type hint and emits color: alert(1); refused (T-15).',
-        'since' => '4.1.18',
-    ],
 
     // Variants the CLI accepts that the engine does not build (TASK-0031 review). All ten
     // candidates are in corpus/variants/compat-gaps.txt; VariantGoldenTest skips them and
@@ -115,7 +108,7 @@ return [
         'since' => '4.1.18',
     ],
 
-    // CLI behaviour a data row cannot say (TASK-0042). All four candidates are in corpus/utilities/edge-quirks.txt.
+    // CLI behaviour a data row cannot say (TASK-0042). All three candidates are in corpus/utilities/edge-quirks.txt.
     [
         'candidate' => 'stroke-1/2',
         'corpus' => 'utilities/edge-quirks',

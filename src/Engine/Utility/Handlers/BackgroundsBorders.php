@@ -16,6 +16,7 @@ use TailwindPhp\Engine\Css\Node\Node;
 use TailwindPhp\Engine\Css\Node\Rule;
 use TailwindPhp\Engine\Data\Utilities\BackgroundsBorders as Rows;
 use TailwindPhp\Engine\Theme\ThemeRegistry;
+use TailwindPhp\Engine\Utility\Compiler;
 use TailwindPhp\Engine\Utility\Definition;
 use TailwindPhp\Engine\Utility\ValueResolver;
 
@@ -457,11 +458,7 @@ final class BackgroundsBorders implements FamilyHandlerInterface
 
     /**
      * A colour for $props with an optional opacity modifier, as the compiler
-     * writes a colour row (rule 7): the colour as is at `100%`, a literal
-     * colour mixed in oklab, otherwise a fallback first — the theme value
-     * mixed in sRGB (as is when the percentage is a variable), or the colour
-     * unmixed — and the oklab mix under
-     * `@supports (color: color-mix(in lab, red, red))`.
+     * writes a colour row (rule 7): the same function, {@see Compiler::mixOpacity()}.
      *
      * @param list<string> $props
      *
@@ -491,29 +488,7 @@ final class BackgroundsBorders implements FamilyHandlerInterface
             return null;
         }
 
-        $used = \array_values(\array_unique(\array_merge($color[1], $opacity[1])));
-
-        if ($opacity[0] === '100%') {
-            return [self::declare($props, $color[0]), $used];
-        }
-
-        $mixed = 'color-mix(in oklab, ' . $color[0] . ' ' . $opacity[0] . ', transparent)';
-        $variable = \strncmp($color[0], 'var(--', 6) === 0 && $color[1] !== [] ? $theme->get($color[1][0]) : null;
-
-        if ($variable !== null) {
-            $fallback = \strncmp($opacity[0], 'var(', 4) === 0
-                ? $variable->value()
-                : 'color-mix(in srgb, ' . $variable->value() . ' ' . $opacity[0] . ', transparent)';
-        } elseif (\strpos($color[0], 'var(') !== false || \strtolower($color[0]) === 'currentcolor') {
-            $fallback = $color[0];
-        } else {
-            return [self::declare($props, $mixed), $used];
-        }
-
-        $nodes = self::declare($props, $fallback);
-        $nodes[] = new AtRule('supports', '(color: color-mix(in lab, red, red))', self::declare($props, $mixed));
-
-        return [$nodes, $used];
+        return Compiler::mixOpacity($props, $color, $opacity, $theme);
     }
 
     /**

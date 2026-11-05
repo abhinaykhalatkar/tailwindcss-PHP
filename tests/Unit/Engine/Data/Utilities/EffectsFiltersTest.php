@@ -269,30 +269,53 @@ final class EffectsFiltersTest extends TestCase
                 '--tw-inset-shadow:inset 0 1px var(--tw-inset-shadow-color, red);box-shadow:var(--tw-inset-shadow), '
                 . 'var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)',
             ],
+            // The CLI trims each shadow, joins the list with a bare comma and writes every shadow after the
+            // first as `inset  …` with two spaces, whatever white space the candidate had (probed, 4.1.18).
             'every shadow of an inset list is inset' => [
                 'inset-shadow-[1px_1px_red,2px_2px_blue]',
                 '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),'
-                . 'inset 2px 2px var(--tw-inset-shadow-color, blue);'
-                . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
-                . 'var(--tw-ring-shadow), var(--tw-shadow)',
+                . 'inset  2px 2px var(--tw-inset-shadow-color, blue)' . self::BOX,
             ],
-            'an inset list keeps the white space after the comma' => [
+            'a space after the comma changes nothing' => [
                 'inset-shadow-[1px_1px_red,_2px_2px_blue]',
                 '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),'
-                . 'inset  2px 2px var(--tw-inset-shadow-color, blue);'
-                . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
-                . 'var(--tw-ring-shadow), var(--tw-shadow)',
+                . 'inset  2px 2px var(--tw-inset-shadow-color, blue)' . self::BOX,
+            ],
+            'two spaces after the comma are still two' => [
+                'inset-shadow-[1px_1px_red,__2px_2px_blue]',
+                '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),'
+                . 'inset  2px 2px var(--tw-inset-shadow-color, blue)' . self::BOX,
+            ],
+            'a space before the comma is dropped' => [
+                'inset-shadow-[1px_1px_red_,2px_2px_blue]',
+                '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),'
+                . 'inset  2px 2px var(--tw-inset-shadow-color, blue)' . self::BOX,
             ],
             'a variable in an inset list is inset too' => [
                 'inset-shadow-[1px_1px_red,var(--s)]',
-                '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),inset var(--s);'
-                . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
-                . 'var(--tw-ring-shadow), var(--tw-shadow)',
+                '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),inset  var(--s)' . self::BOX,
+            ],
+            'a space before that variable changes nothing' => [
+                'inset-shadow-[1px_1px_red,_var(--s)]',
+                '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),inset  var(--s)' . self::BOX,
+            ],
+            'an empty shadow in an inset list is kept' => [
+                'inset-shadow-[1px_1px_red,,2px_2px_blue]',
+                '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),inset  ,'
+                . 'inset  2px 2px var(--tw-inset-shadow-color, blue)' . self::BOX,
+            ],
+            'a trailing comma leaves an empty inset shadow' => [
+                'inset-shadow-[1px_1px_red,]',
+                '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),inset  ' . self::BOX,
             ],
             'an inset keyword of the author is kept as written' => [
                 'inset-shadow-[1px_1px_red,inset_2px_2px_blue]',
                 '--tw-inset-shadow:inset 1px 1px var(--tw-inset-shadow-color, red),'
-                . 'inset inset 2px 2px var(--tw-inset-shadow-color, blue);'
+                . 'inset  inset 2px 2px var(--tw-inset-shadow-color, blue)' . self::BOX,
+            ],
+            'an empty shadow in a plain list is kept' => [
+                'shadow-[1px_1px_red,,2px_2px_blue]',
+                '--tw-shadow:1px 1px var(--tw-shadow-color, red), , 2px 2px var(--tw-shadow-color, blue);'
                 . 'box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), '
                 . 'var(--tw-ring-shadow), var(--tw-shadow)',
             ],

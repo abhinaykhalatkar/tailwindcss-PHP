@@ -98,7 +98,8 @@ final class TypographyTest extends TestCase
         self::assertSame($entry['arbitrary'], $arbitrary, 'arbitrary');
         $listed = $entry['modifier'] === null ? [] : [$entry['modifier']];
 
-        self::assertSame($listed, \array_values(\array_intersect($modifiers, $listed)), 'modifier');
+        // A root may list its colour twice (the typed colour first, the catch-all colour last).
+        self::assertSame($listed, \array_values(\array_unique(\array_intersect($modifiers, $listed))), 'modifier');
 
         // `text` takes a colour opacity too: its listed modifier is the font-size one, so the opacity one
         // may sit next to it; no other root has two.

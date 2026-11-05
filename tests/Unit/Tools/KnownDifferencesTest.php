@@ -383,7 +383,7 @@ final class KnownDifferencesTest extends TestCase
 
         self::assertGreaterThanOrEqual(6, \count($entries));
 
-        foreach (['bg-[url(javascript:alert(1))]', 'p-[1px/*x*/]', 'text-[javascript:alert(1)]'] as $candidate) {
+        foreach (['bg-[url(javascript:alert(1))]', 'p-[1px/*x*/]'] as $candidate) {
             self::assertArrayHasKey($candidate, $index['utilities/edge-rejections'], $candidate);
             self::assertSame('deliberate', $index['utilities/edge-rejections'][$candidate]['class']);
         }

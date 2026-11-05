@@ -74,6 +74,9 @@ final class Typography
                     ],
                 ],
             ],
+            // The typed colour comes first so a variable without a hint stays a colour (`text-(--x)`); the last
+            // sub-definition takes any other arbitrary value as a colour too (`text-[var(--x)]`, `text-[foo]`), as
+            // the CLI does and as the paint rows of `fill` and `stroke` do.
             'text' => [
                 'variants' => [
                     [
@@ -96,6 +99,7 @@ final class Typography
                         'props' => ['text-wrap'],
                         'named' => self::keywords(['wrap', 'nowrap', 'balance', 'pretty']),
                     ],
+                    ['props' => ['color'], 'modifier' => 'opacity', 'arbitrary' => true],
                 ],
             ],
             'antialiased' => [
@@ -148,6 +152,7 @@ final class Typography
             ],
             'list-inside' => ['static' => ['list-style-position' => 'inside']],
             'list-outside' => ['static' => ['list-style-position' => 'outside']],
+            // As `text`: the typed colour first, a catch-all colour last (`decoration-[auto]` is a colour in the CLI).
             'decoration' => [
                 'variants' => [
                     [
@@ -166,6 +171,7 @@ final class Typography
                         'props' => ['text-decoration-style'],
                         'named' => self::keywords(['solid', 'double', 'dotted', 'dashed', 'wavy']),
                     ],
+                    ['props' => ['text-decoration-color'], 'modifier' => 'opacity', 'arbitrary' => true],
                 ],
             ],
             'underline' => ['static' => ['text-decoration-line' => 'underline']],

@@ -49,6 +49,12 @@ final class EffectsFilters implements FamilyHandlerInterface
     private const LAB_SUPPORT = '(color: lab(from red l a b))';
 
     /**
+     * Added to a level of {@see self::withAlpha()} when a colour of the list reads a variable: the literal colours of
+     * that list wait for the relative-colour level as well.
+     */
+    private const WAIT = 4;
+
+    /**
      * Tokens of a shadow that are neither an offset nor a colour: `inset` and the CSS-wide keywords.
      */
     private const SKIPPED = ['inset' => true, 'inherit' => true, 'initial' => true, 'revert' => true, 'unset' => true];
@@ -159,6 +165,17 @@ final class EffectsFilters implements FamilyHandlerInterface
         );
 
         if ($isColor) {
+            // A colour that is one reference to a theme variable is the theme colour: its value is what the
+            // plain line carries and the fallback mixes (the compiler counts the variable used, as it does for
+            // every reference in the output).
+            $variable = Compiler::themeVariableOf($resolved[0], $theme);
+
+            if ($variable !== null) {
+                $modifier = $candidate->modifier;
+
+                return $this->colorNodes($variable[1], $resolved[0], $resolved[1], $modifier, $theme, $inset, true);
+            }
+
             return $this->colorNodes($resolved[0], $resolved[0], $resolved[1], $candidate->modifier, $theme, $inset);
         }
 
@@ -281,13 +298,7 @@ final class EffectsFilters implements FamilyHandlerInterface
                 // colour that is a variable or `currentcolor` (as the CLI writes `bg-current/50` and
                 // `shadow-[color:var(--c)]/50`). A theme colour that is itself `currentcolor` or one variable
                 // falls back to its reference, whatever the alpha.
-                if ($fromTheme && Compiler::isUnmixable($raw, true)) {
-                    $fallback = $reference;
-                } elseif (\strncmp($opacity[0], 'var(', 4) === 0 || (!$fromTheme && Compiler::isUnmixable($raw))) {
-                    $fallback = $raw;
-                } else {
-                    $fallback = 'color-mix(in srgb, ' . $raw . ' ' . $opacity[0] . ', transparent)';
-                }
+                $fallback = Compiler::opacityFallbackAlways($reference, $fromTheme ? $raw : null, $opacity[0]);
                 $mixed = 'color-mix(in oklab, ' . $reference . ' ' . $opacity[0] . ', transparent)';
             }
         }
@@ -314,26 +325,40 @@ final class EffectsFilters implements FamilyHandlerInterface
         $alphaProperty = $inset ? '--tw-inset-shadow-alpha' : '--tw-shadow-alpha';
         $colorProperty = self::colorProperty($inset);
         $list = $inset && $prefix;
-        $plain = $list
-            ? self::insetShadows($text, $colorProperty, null, $replace)
-            : ($replace ? self::replaceColors($text, $colorProperty, null) : $text);
         $nodes = [];
+        $wait = $replace && $alpha !== null && self::readsVariable($text) ? self::WAIT : 0;
+        $at = static function (?string $alpha, int $level) use ($text, $colorProperty, $list, $replace, $wait): string {
+            if ($list) {
+                return self::insetShadows($text, $colorProperty, $alpha, $replace, $level | $wait);
+            }
+
+            return $replace ? self::replaceColors($text, $colorProperty, $alpha, $level | $wait) : $text;
+        };
 
         if ($alpha === null) {
-            $nodes[] = new Declaration($property, $plain);
+            $nodes[] = new Declaration($property, $at(null, 0));
         } else {
-            $tinted = $list
-                ? self::insetShadows($text, $colorProperty, $alpha, $replace)
-                : ($replace ? self::replaceColors($text, $colorProperty, $alpha) : $text);
             $nodes[] = new Declaration($alphaProperty, $alpha);
 
-            if (\strncmp($alpha, 'var(', 4) === 0) {
-                // A variable alpha only works where the browser understands relative colours: the plain
-                // value first, the tinted one under a support query.
-                $nodes[] = new Declaration($property, $plain);
-                $nodes[] = new AtRule('supports', self::LAB_SUPPORT, [new Declaration($property, $tinted)]);
-            } else {
-                $nodes[] = new Declaration($property, $tinted);
+            // The value is written at up to three levels, each only when it differs from the one before: the
+            // plain one, the one under `@supports (color: lab(from red l a b))` (relative colours, for a
+            // colour that reads a variable and for a variable alpha) and, inside it or on its own, the one
+            // under `@supports (color: color-mix(in lab, red, red))` (`currentcolor` cannot be an oklab base).
+            $first = $at($alpha, 0);
+            $second = $at($alpha, 1);
+            $third = $at($alpha, 2);
+            $nodes[] = new Declaration($property, $first);
+
+            if ($second !== $first) {
+                $inner = [new Declaration($property, $second)];
+
+                if ($third !== $second) {
+                    $inner[] = new AtRule('supports', self::COLOR_SUPPORT, [new Declaration($property, $third)]);
+                }
+
+                $nodes[] = new AtRule('supports', self::LAB_SUPPORT, $inner);
+            } elseif ($third !== $second) {
+                $nodes[] = new AtRule('supports', self::COLOR_SUPPORT, [new Declaration($property, $third)]);
             }
         }
 
@@ -358,37 +383,66 @@ final class EffectsFilters implements FamilyHandlerInterface
      * appended. A shadow with fewer than two offsets (`3px`, `var(--s)`,
      * `1px red`, `calc(1px) calc(1px) red`) is left as written.
      */
-    private static function replaceColors(string $text, string $property, ?string $alpha): string
+    private static function replaceColors(string $text, string $property, ?string $alpha, int $level = 0): string
     {
         $shadows = [];
 
-        foreach (self::split($text, ',') as $shadow) {
-            $shadows[] = self::replaceShadowColor($shadow, $property, $alpha);
+        foreach (self::splitCommas($text) as $shadow) {
+            $shadows[] = self::replaceShadowColor($shadow, $property, $alpha, $level);
         }
 
         return \implode(', ', $shadows);
     }
 
     /**
-     * Every shadow of the list gets `inset ` in front, as the CLI writes it
+     * Every shadow of the list gets `inset` in front, as the CLI writes it
      * (`inset-shadow-[1px_1px_red,2px_2px_blue]` is two inset shadows), and then
-     * its colour replaced like any other. The CLI joins the shadows with a bare
-     * comma and leaves each one's own leading space, so a second shadow written
-     * after `,_` has two spaces after its `inset`.
+     * its colour replaced like any other. The shadows are trimmed, an empty one is
+     * kept, and the list is joined with a bare comma: the first shadow is written
+     * `inset 1px …`, every later one `inset  2px …` with two spaces whatever white
+     * space the candidate had around the comma (probed against 4.1.18).
      */
-    private static function insetShadows(string $text, string $property, ?string $alpha, bool $replace): string
-    {
+    private static function insetShadows(
+        string $text,
+        string $property,
+        ?string $alpha,
+        bool $replace,
+        int $level = 0
+    ): string {
         $shadows = [];
 
-        foreach (self::splitUntrimmed($text) as $shadow) {
-            $shadow = 'inset ' . $shadow;
-            $shadows[] = $replace ? self::replaceShadowColor($shadow, $property, $alpha) : $shadow;
+        foreach (self::splitCommas($text) as $index => $shadow) {
+            $shadow = ($index === 0 ? 'inset ' : 'inset  ') . $shadow;
+            $shadows[] = $replace ? self::replaceShadowColor($shadow, $property, $alpha, $level) : $shadow;
         }
 
         return \implode(',', $shadows);
     }
 
-    private static function replaceShadowColor(string $shadow, string $property, ?string $alpha): string
+    private static function replaceShadowColor(string $shadow, string $property, ?string $alpha, int $level): string
+    {
+        $color = self::colorOf($shadow);
+
+        if ($color === null) {
+            return $shadow;
+        }
+
+        if (!self::hasColor($shadow)) {
+            return $shadow . ' ' . self::wrapColor('currentcolor', $property, $alpha, $level);
+        }
+
+        $position = (int) \strpos($shadow, $color);
+
+        return \substr($shadow, 0, $position)
+            . self::wrapColor($color, $property, $alpha, $level)
+            . \substr($shadow, $position + \strlen($color));
+    }
+
+    /**
+     * The colour of one shadow that is rewritten, `currentcolor` when it has none to rewrite, or null when the shadow
+     * is left as written (fewer than two offsets).
+     */
+    private static function colorOf(string $shadow): ?string
     {
         $color = null;
         $offsets = 0;
@@ -409,26 +463,70 @@ final class EffectsFilters implements FamilyHandlerInterface
             }
         }
 
-        if ($offsets < 2) {
-            return $shadow;
-        }
-
-        if ($color === null) {
-            return $shadow . ' ' . self::wrapColor('currentcolor', $property, $alpha);
-        }
-
-        $position = (int) \strpos($shadow, $color);
-
-        return \substr($shadow, 0, $position)
-            . self::wrapColor($color, $property, $alpha)
-            . \substr($shadow, $position + \strlen($color));
+        return $offsets < 2 ? null : ($color ?? 'currentcolor');
     }
 
-    private static function wrapColor(string $color, string $property, ?string $alpha): string
+    /**
+     * Whether a shadow that is rewritten names a colour (and not only offsets: `currentcolor` is then appended).
+     */
+    private static function hasColor(string $shadow): bool
     {
-        $inner = $alpha === null ? $color : 'oklab(from ' . $color . ' l a b / ' . $alpha . ')';
+        foreach (self::split($shadow, ' ') as $token) {
+            if (!isset(self::SKIPPED[$token]) && !self::isOffset($token)) {
+                return true;
+            }
+        }
 
-        return 'var(' . $property . ', ' . $inner . ')';
+        return false;
+    }
+
+    /**
+     * Whether the colour of any shadow of the list reads a variable (`var(--c)`).
+     */
+    private static function readsVariable(string $text): bool
+    {
+        foreach (self::splitCommas($text) as $shadow) {
+            $color = self::colorOf($shadow);
+
+            if ($color !== null && \strncmp($color, 'var(', 4) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function wrapColor(string $color, string $property, ?string $alpha, int $level): string
+    {
+        return 'var(' . $property . ', ' . ($alpha === null ? $color : self::withAlpha($color, $alpha, $level)) . ')';
+    }
+
+    /**
+     * A shadow colour with an alpha at one of the three levels of {@see self::shadowNodes()} (probed against 4.1.18):
+     *
+     * - `currentcolor` (any case) stays as it is until level 2, where it is
+     *   `color-mix(in oklab, <colour> <alpha>, transparent)` unless the alpha is `100%`;
+     * - any other colour is `oklab(from <colour> l a b / <alpha>)` at once, except that it waits for level 1 when
+     *   the alpha is a variable or when a colour of the list reads a variable (`var(--c)`), which stays as it is
+     *   at level 0 ({@see self::WAIT}).
+     */
+    private static function withAlpha(string $color, string $alpha, int $mode): string
+    {
+        $level = $mode & 3;
+
+        if (\strtolower($color) === 'currentcolor') {
+            return $level === 2 && $alpha !== '100%'
+                ? 'color-mix(in oklab, ' . $color . ' ' . $alpha . ', transparent)'
+                : $color;
+        }
+
+        $waits = ($mode & self::WAIT) !== 0 || \strncmp($alpha, 'var(', 4) === 0;
+
+        if ($level === 0 && $waits) {
+            return $color;
+        }
+
+        return 'oklab(from ' . $color . ' l a b / ' . $alpha . ')';
     }
 
     /**
@@ -456,12 +554,12 @@ final class EffectsFilters implements FamilyHandlerInterface
     }
 
     /**
-     * $text split at the commas outside parentheses, each part as written (its own leading space kept),
-     * parts that are only white space dropped.
+     * $text split at the commas outside parentheses, each part trimmed, an empty part kept (the CLI writes
+     * `a,,b` as three shadows, the middle one empty).
      *
      * @return list<string>
      */
-    private static function splitUntrimmed(string $text): array
+    private static function splitCommas(string $text): array
     {
         $parts = [];
         $depth = 0;
@@ -482,9 +580,7 @@ final class EffectsFilters implements FamilyHandlerInterface
 
         $parts[] = (string) \substr($text, $start);
 
-        return \array_values(\array_filter($parts, static function (string $part): bool {
-            return \trim($part) !== '';
-        }));
+        return \array_map('trim', $parts);
     }
 
     /**
