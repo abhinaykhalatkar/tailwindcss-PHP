@@ -35,7 +35,7 @@ final class TypographyTest extends TestCase
         $inventory = new Inventory();
         $roots = $inventory->families()['typography'];
 
-        self::assertCount(46, $roots);
+        self::assertCount(47, $roots);
         self::assertSame($roots, \array_keys(Typography::rows()), 'same roots, same (catalogue) order');
     }
 

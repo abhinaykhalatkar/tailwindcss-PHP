@@ -30,10 +30,10 @@ final class CorpusCoverageTest extends TestCase
      * Lines per generated family file, and their total.
      */
     private const COUNTS = [
-        'layout' => 755,
-        'flexbox-grid' => 500,
+        'layout' => 771,
+        'flexbox-grid' => 528,
         'spacing-sizing' => 598,
-        'typography' => 516,
+        'typography' => 524,
         'backgrounds-borders' => 937,
         'effects-filters' => 117,
         'tables-transitions-transforms' => 347,
@@ -41,7 +41,7 @@ final class CorpusCoverageTest extends TestCase
         'arbitrary-property' => 10,
     ];
 
-    private const TOTAL = 4440;
+    private const TOTAL = 4492;
 
     private const VARIANT_PREFIXES = ['md:', 'hover:', 'md:hover:', 'dark:', 'group-hover:', '[&>*]:'];
 

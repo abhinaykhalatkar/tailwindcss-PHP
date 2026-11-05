@@ -194,6 +194,8 @@ final class Typography
             ],
             'text-ellipsis' => ['static' => ['text-overflow' => 'ellipsis']],
             'text-clip' => ['static' => ['text-overflow' => 'clip']],
+            // The deprecated v3 name of `text-ellipsis` (TASK-0055).
+            'overflow-ellipsis' => ['static' => ['text-overflow' => 'ellipsis']],
             'indent' => [
                 'props' => ['text-indent'],
                 'named' => ['px' => '1px'],

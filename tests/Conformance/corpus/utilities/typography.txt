@@ -433,6 +433,15 @@ md:hover:text-clip
 dark:text-clip
 group-hover:text-clip
 [&>*]:text-clip
+# overflow-ellipsis
+overflow-ellipsis
+overflow-ellipsis!
+md:overflow-ellipsis
+hover:overflow-ellipsis
+md:hover:overflow-ellipsis
+dark:overflow-ellipsis
+group-hover:overflow-ellipsis
+[&>*]:overflow-ellipsis
 # indent
 indent-0
 indent-px

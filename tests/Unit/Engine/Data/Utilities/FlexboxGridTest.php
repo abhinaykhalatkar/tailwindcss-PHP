@@ -30,7 +30,7 @@ final class FlexboxGridTest extends TestCase
         $inventory = new Inventory();
         $roots = $inventory->families()['flexbox-grid'];
 
-        self::assertCount(36, $roots);
+        self::assertCount(38, $roots);
         self::assertSame($roots, \array_keys(FlexboxGrid::rows()), 'same roots, same (catalogue) order');
     }
 

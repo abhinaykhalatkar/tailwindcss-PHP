@@ -101,6 +101,24 @@ md:hover:box-decoration-clone
 dark:box-decoration-clone
 group-hover:box-decoration-clone
 [&>*]:box-decoration-clone
+# decoration-slice
+decoration-slice
+decoration-slice!
+md:decoration-slice
+hover:decoration-slice
+md:hover:decoration-slice
+dark:decoration-slice
+group-hover:decoration-slice
+[&>*]:decoration-slice
+# decoration-clone
+decoration-clone
+decoration-clone!
+md:decoration-clone
+hover:decoration-clone
+md:hover:decoration-clone
+dark:decoration-clone
+group-hover:decoration-clone
+[&>*]:decoration-clone
 # box
 box-border
 box-content

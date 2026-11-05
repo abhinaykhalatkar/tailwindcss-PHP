@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (a selector, `@media`, `@supports`, `@container` or `(@starting-style)`) and `@apply`. A project
   that needs `@plugin`, `@config`, a functional `@utility` or the block form of `@custom-variant`
   gets a diagnostic from the engine and should use the `cli` driver.
+- The deprecated v3 names the official CLI still emits (`flex-grow` and `flex-shrink` with their values,
+  `overflow-ellipsis`, `decoration-slice`, `decoration-clone`) compile like their v4 equivalents.
 - A conformance suite that compares the engine with the official CLI (4.1.18) on a generated
   corpus of 5 739 utility and variant candidates: 99.7 % identical, every difference listed with its
   reason in `docs/compat/KNOWN-DIFFERENCES.md`. `ConformanceTest` fails on a difference nobody listed and on

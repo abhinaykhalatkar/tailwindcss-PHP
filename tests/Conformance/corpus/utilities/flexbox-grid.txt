@@ -122,6 +122,36 @@ md:hover:shrink
 dark:shrink
 group-hover:shrink
 [&>*]:shrink
+# flex-grow
+flex-grow
+flex-grow-1
+flex-grow-2
+flex-grow-3
+flex-grow-10
+flex-grow-[7]
+flex-grow-(--my-var)
+flex-grow!
+md:flex-grow
+hover:flex-grow
+md:hover:flex-grow
+dark:flex-grow
+group-hover:flex-grow
+[&>*]:flex-grow
+# flex-shrink
+flex-shrink
+flex-shrink-1
+flex-shrink-2
+flex-shrink-3
+flex-shrink-10
+flex-shrink-[7]
+flex-shrink-(--my-var)
+flex-shrink!
+md:flex-shrink
+hover:flex-shrink
+md:hover:flex-shrink
+dark:flex-shrink
+group-hover:flex-shrink
+[&>*]:flex-shrink
 # order
 order-1
 order-2

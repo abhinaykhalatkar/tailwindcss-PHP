@@ -34,10 +34,10 @@ final class InventoryTest extends TestCase
      * arbitrary-property                doc 08 §Arbitrary property `[prop:value]`
      */
     private const COUNTS = [
-        'layout' => 60,
-        'flexbox-grid' => 36,
+        'layout' => 62,
+        'flexbox-grid' => 38,
         'spacing-sizing' => 29,
-        'typography' => 46,
+        'typography' => 47,
         'backgrounds-borders' => 42,
         'effects-filters' => 5,
         'tables-transitions-transforms' => 26,
@@ -45,7 +45,7 @@ final class InventoryTest extends TestCase
         'arbitrary-property' => 1,
     ];
 
-    private const TOTAL = 294;
+    private const TOTAL = 299;
 
     private const KEYS = [
         'family', 'kind', 'theme', 'bare', 'fraction', 'negative', 'arbitrary', 'modifier', 'tier', 'forms',

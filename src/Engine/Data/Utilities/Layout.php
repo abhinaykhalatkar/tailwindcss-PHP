@@ -64,6 +64,13 @@ final class Layout
                 'props' => ['-webkit-box-decoration-break', 'box-decoration-break'],
                 'named' => self::keywords(['clone', 'slice']),
             ],
+            // The deprecated v3 names of `box-decoration-slice` and `-clone` (TASK-0055).
+            'decoration-slice' => [
+                'static' => ['-webkit-box-decoration-break' => 'slice', 'box-decoration-break' => 'slice'],
+            ],
+            'decoration-clone' => [
+                'static' => ['-webkit-box-decoration-break' => 'clone', 'box-decoration-break' => 'clone'],
+            ],
             'box' => ['props' => ['box-sizing'], 'named' => ['border' => 'border-box', 'content' => 'content-box']],
             'block' => self::display('block'),
             'inline-block' => self::display('inline-block'),

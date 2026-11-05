@@ -676,6 +676,12 @@
   .break-keep\! {
     word-break: keep-all !important;
   }
+  .overflow-ellipsis {
+    text-overflow: ellipsis;
+  }
+  .overflow-ellipsis\! {
+    text-overflow: ellipsis !important;
+  }
   .text-clip {
     text-overflow: clip;
   }
@@ -1192,6 +1198,13 @@
       }
     }
   }
+  .group-hover\:overflow-ellipsis {
+    &:is(:where(.group):hover *) {
+      @media (hover: hover) {
+        text-overflow: ellipsis;
+      }
+    }
+  }
   .group-hover\:text-clip {
     &:is(:where(.group):hover *) {
       @media (hover: hover) {
@@ -1533,6 +1546,13 @@
       }
     }
   }
+  .hover\:overflow-ellipsis {
+    &:hover {
+      @media (hover: hover) {
+        text-overflow: ellipsis;
+      }
+    }
+  }
   .hover\:text-clip {
     &:hover {
       @media (hover: hover) {
@@ -1834,6 +1854,11 @@
   .md\:break-keep {
     @media (width >= 48rem) {
       word-break: keep-all;
+    }
+  }
+  .md\:overflow-ellipsis {
+    @media (width >= 48rem) {
+      text-overflow: ellipsis;
     }
   }
   .md\:text-clip {
@@ -2157,6 +2182,15 @@
       &:hover {
         @media (hover: hover) {
           word-break: keep-all;
+        }
+      }
+    }
+  }
+  .md\:hover\:overflow-ellipsis {
+    @media (width >= 48rem) {
+      &:hover {
+        @media (hover: hover) {
+          text-overflow: ellipsis;
         }
       }
     }
@@ -2518,6 +2552,11 @@
       word-break: keep-all;
     }
   }
+  .dark\:overflow-ellipsis {
+    @media (prefers-color-scheme: dark) {
+      text-overflow: ellipsis;
+    }
+  }
   .dark\:text-clip {
     @media (prefers-color-scheme: dark) {
       text-overflow: clip;
@@ -2765,6 +2804,11 @@
   .\[\&\>\*\]\:break-keep {
     &>* {
       word-break: keep-all;
+    }
+  }
+  .\[\&\>\*\]\:overflow-ellipsis {
+    &>* {
+      text-overflow: ellipsis;
     }
   }
   .\[\&\>\*\]\:text-clip {

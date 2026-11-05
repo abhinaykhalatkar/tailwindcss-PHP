@@ -24,7 +24,7 @@ final class LayoutTest extends TestCase
         $inventory = new Inventory();
         $roots = $inventory->families()['layout'];
 
-        self::assertCount(60, $roots);
+        self::assertCount(62, $roots);
         self::assertSame($roots, \array_keys(Layout::rows()), 'same roots, same (catalogue) order');
     }
 

@@ -474,6 +474,30 @@
   .row-end-auto {
     grid-row-end: auto;
   }
+  .flex-shrink {
+    flex-shrink: 1;
+  }
+  .flex-shrink\! {
+    flex-shrink: 1 !important;
+  }
+  .flex-shrink-\(--my-var\) {
+    flex-shrink: var(--my-var);
+  }
+  .flex-shrink-1 {
+    flex-shrink: 1;
+  }
+  .flex-shrink-2 {
+    flex-shrink: 2;
+  }
+  .flex-shrink-3 {
+    flex-shrink: 3;
+  }
+  .flex-shrink-10 {
+    flex-shrink: 10;
+  }
+  .flex-shrink-\[7\] {
+    flex-shrink: 7;
+  }
   .shrink {
     flex-shrink: 1;
   }
@@ -497,6 +521,30 @@
   }
   .shrink-\[7\] {
     flex-shrink: 7;
+  }
+  .flex-grow {
+    flex-grow: 1;
+  }
+  .flex-grow\! {
+    flex-grow: 1 !important;
+  }
+  .flex-grow-\(--my-var\) {
+    flex-grow: var(--my-var);
+  }
+  .flex-grow-1 {
+    flex-grow: 1;
+  }
+  .flex-grow-2 {
+    flex-grow: 2;
+  }
+  .flex-grow-3 {
+    flex-grow: 3;
+  }
+  .flex-grow-10 {
+    flex-grow: 10;
+  }
+  .flex-grow-\[7\] {
+    flex-grow: 7;
   }
   .grow {
     flex-grow: 1;
@@ -1088,10 +1136,24 @@
       }
     }
   }
+  .group-hover\:flex-shrink {
+    &:is(:where(.group):hover *) {
+      @media (hover: hover) {
+        flex-shrink: 1;
+      }
+    }
+  }
   .group-hover\:shrink {
     &:is(:where(.group):hover *) {
       @media (hover: hover) {
         flex-shrink: 1;
+      }
+    }
+  }
+  .group-hover\:flex-grow {
+    &:is(:where(.group):hover *) {
+      @media (hover: hover) {
+        flex-grow: 1;
       }
     }
   }
@@ -1341,10 +1403,24 @@
       }
     }
   }
+  .hover\:flex-shrink {
+    &:hover {
+      @media (hover: hover) {
+        flex-shrink: 1;
+      }
+    }
+  }
   .hover\:shrink {
     &:hover {
       @media (hover: hover) {
         flex-shrink: 1;
+      }
+    }
+  }
+  .hover\:flex-grow {
+    &:hover {
+      @media (hover: hover) {
+        flex-grow: 1;
       }
     }
   }
@@ -1576,9 +1652,19 @@
       grid-row-end: 2;
     }
   }
+  .md\:flex-shrink {
+    @media (width >= 48rem) {
+      flex-shrink: 1;
+    }
+  }
   .md\:shrink {
     @media (width >= 48rem) {
       flex-shrink: 1;
+    }
+  }
+  .md\:flex-grow {
+    @media (width >= 48rem) {
+      flex-grow: 1;
     }
   }
   .md\:grow {
@@ -1793,11 +1879,29 @@
       }
     }
   }
+  .md\:hover\:flex-shrink {
+    @media (width >= 48rem) {
+      &:hover {
+        @media (hover: hover) {
+          flex-shrink: 1;
+        }
+      }
+    }
+  }
   .md\:hover\:shrink {
     @media (width >= 48rem) {
       &:hover {
         @media (hover: hover) {
           flex-shrink: 1;
+        }
+      }
+    }
+  }
+  .md\:hover\:flex-grow {
+    @media (width >= 48rem) {
+      &:hover {
+        @media (hover: hover) {
+          flex-grow: 1;
         }
       }
     }
@@ -2082,9 +2186,19 @@
       grid-row-end: 2;
     }
   }
+  .dark\:flex-shrink {
+    @media (prefers-color-scheme: dark) {
+      flex-shrink: 1;
+    }
+  }
   .dark\:shrink {
     @media (prefers-color-scheme: dark) {
       flex-shrink: 1;
+    }
+  }
+  .dark\:flex-grow {
+    @media (prefers-color-scheme: dark) {
+      flex-grow: 1;
     }
   }
   .dark\:grow {
@@ -2263,9 +2377,19 @@
       grid-row-end: 2;
     }
   }
+  .\[\&\>\*\]\:flex-shrink {
+    &>* {
+      flex-shrink: 1;
+    }
+  }
   .\[\&\>\*\]\:shrink {
     &>* {
       flex-shrink: 1;
+    }
+  }
+  .\[\&\>\*\]\:flex-grow {
+    &>* {
+      flex-grow: 1;
     }
   }
   .\[\&\>\*\]\:grow {

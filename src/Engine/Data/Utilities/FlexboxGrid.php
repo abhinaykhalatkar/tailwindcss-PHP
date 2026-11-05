@@ -58,6 +58,9 @@ final class FlexboxGrid
             'flex-nowrap' => ['static' => ['flex-wrap' => 'nowrap']],
             'grow' => self::factor('flex-grow'),
             'shrink' => self::factor('flex-shrink'),
+            // The deprecated v3 names the pinned CLI still emits, with the same values (TASK-0055).
+            'flex-grow' => self::factor('flex-grow'),
+            'flex-shrink' => self::factor('flex-shrink'),
             'order' => [
                 'variants' => [
                     ['props' => ['order'], 'named' => ['first' => '-9999', 'last' => '9999', 'none' => '0']],
