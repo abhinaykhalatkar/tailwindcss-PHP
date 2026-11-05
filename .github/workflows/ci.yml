@@ -15,28 +15,28 @@ permissions:
 
 jobs:
   # Cheapest gate first: syntax on the floor version (design doc 20, doc 14 § Tooling).
-  # Deliberately Composer-free — `php -l` needs no autoloader, and the dev toolchain
-  # cannot resolve on 7.3 (php-cs-fixer requires ^7.4 || ^8.0).
-  lint-73:
-    name: Lint (PHP 7.3 floor)
+  # Deliberately Composer-free: `php -l` needs no autoloader and runs before any
+  # dependency is resolved.
+  lint-82:
+    name: Lint (PHP 8.2 floor)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '7.3'
+          php-version: '8.2'
           coverage: none
 
       - name: php -l on every file
         run: find $(ls -d src tests tools bin 2>/dev/null) -name '*.php' -print0 | xargs -0 -n1 php -l
 
-  # PHPStan and php-cs-fixer need PHP >= 7.4 to run; they analyse for 7.3 (ADR-007).
+  # PHPStan and php-cs-fixer run on 8.3; the PHP version PHPStan analyses for is pinned in phpstan.neon.dist.
   static:
     name: Static analysis (PHP 8.3)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -48,7 +48,7 @@ jobs:
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Composer downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: ${{ runner.os }}-composer-8.3-highest-${{ hashFiles('composer.json') }}
@@ -59,14 +59,14 @@ jobs:
       - name: Install dependencies
         run: composer update --no-interaction --no-progress
 
-      # php-cs-fixer lives in its own manifest because it cannot run on the 7.3 floor.
+      # php-cs-fixer keeps its own manifest under tools/php-cs-fixer.
       - name: Install pinned tools
         run: composer tools:install
 
       - name: Coding standards (php-cs-fixer --dry-run + phpcs)
         run: composer cs
 
-      - name: PHPStan (level 8, phpVersion 70300)
+      - name: PHPStan (level 8)
         run: composer stan
 
       # Informational until M4, then --strict.
@@ -81,7 +81,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['7.3', '7.4', '8.0', '8.1', '8.2', '8.3', '8.4']
+        php: ['8.2', '8.3', '8.4']
         deps: ['highest']
         # `restricted` is declared here with its default so that the `restricted: true`
         # entry below is created as an ADDITIONAL job. Without this key, GitHub would
@@ -90,7 +90,7 @@ jobs:
         # unrestricted 8.3 coverage job would disappear.
         restricted: [false]
         include:
-          - php: '7.3'
+          - php: '8.2'
             deps: 'lowest'
           - php: '8.4'
             deps: 'lowest'
@@ -102,7 +102,7 @@ jobs:
             deps: 'highest'
             restricted: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # disable_functions is NOT set here: it would also disable Composer, which needs
       # proc_open. It is applied to the PHPUnit process only, in the test step below.
@@ -117,7 +117,7 @@ jobs:
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Composer downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: ${{ runner.os }}-composer-${{ matrix.php }}-${{ matrix.deps }}-${{ hashFiles('composer.json') }}
@@ -133,7 +133,7 @@ jobs:
 
       - name: Upload JUnit results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-${{ matrix.php }}-${{ matrix.deps }}${{ matrix.restricted && '-restricted' || '' }}
           path: build/junit.xml
@@ -149,7 +149,7 @@ jobs:
     # Budgets are asserted (TAILWINDPHP_BENCH=1) but do not fail the build until M4.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -161,14 +161,18 @@ jobs:
       - name: Install dependencies
         run: composer update --no-interaction --no-progress
 
+      # Shared runners are slower than the host the budgets were calibrated on; doc 20 sets
+      # the pull-request tolerance at 1.25 (tests/Benchmark multiplies each budget by it).
       - name: Run the benchmark suite
+        env:
+          BENCH_TOLERANCE: '1.25'
         run: TAILWINDPHP_BENCH=1 composer bench
 
   security:
     name: Security
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -180,7 +184,7 @@ jobs:
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Composer downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: ${{ runner.os }}-composer-8.3-highest-${{ hashFiles('composer.json') }}
