@@ -10,7 +10,7 @@ updates:
       dev-dependencies:
         dependency-type: development
 
-  # php-cs-fixer has its own manifest: it cannot run on the PHP 7.3 floor.
+  # php-cs-fixer has its own manifest under tools/php-cs-fixer, outside require-dev.
   - package-ecosystem: composer
     directory: "/tools/php-cs-fixer"
     schedule:

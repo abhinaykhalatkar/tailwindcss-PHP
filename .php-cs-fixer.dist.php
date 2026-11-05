@@ -20,7 +20,11 @@ return $config
     ->setCacheFile(__DIR__ . '/.php-cs-fixer.cache')
     ->setRules([
         '@PSR12' => true,
-        '@PHP73Migration' => true,
+        '@PHP82Migration' => true,
+        // The 8.2 floor makes these two rewrites possible (0o777 octal prefix, ??=), but they
+        // touch about 85 files for style only; adopting them is a separate decision.
+        'octal_notation' => false,
+        'assign_null_coalescing_to_coalesce_equal' => false,
         'declare_strict_types' => true,
         'native_function_invocation' => [
             'include' => ['@all'],

@@ -39,6 +39,8 @@ exploited.
 The package is not yet published on Packagist. Until 1.0.0 there are no tagged
 releases to back-port to, so fixes land on `main`.
 
+The library requires PHP 8.2 or newer. PHP 7.3 to 8.1 are not supported.
+
 ## What is in scope
 
 Vulnerabilities in this library's own code, in particular:
@@ -63,10 +65,9 @@ created directories, are also in scope.
 ## What is out of scope
 
 - Vulnerabilities in PHP itself, in the web server, or in the operating system.
-- The fact that a host runs an end-of-life PHP version. This library supports PHP 7.3
-  and 7.4 so that you are not blocked by your host, but running an unsupported PHP is
-  a risk this library cannot remove. Reports amounting to "PHP 7.3 is EOL" will be
-  closed.
+- The fact that a host runs an end-of-life PHP version. This library requires PHP 8.2
+  or newer; a host running an unsupported PHP carries a risk this library cannot
+  remove. Reports amounting to "PHP x.y is EOL" will be closed.
 - Consumer misconfiguration — for example placing the cache directory inside the
   document root and then serving it directly, enabling debug mode in production, or
   granting the web server write access to the source tree. These are documented

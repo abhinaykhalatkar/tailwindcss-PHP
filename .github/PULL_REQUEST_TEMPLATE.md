@@ -17,7 +17,7 @@ Closes #
 
 ## Checklist
 
-- [ ] PHP 7.3 compatible — `php -l` on 7.3, PHPStan (phpVersion 70300), fixer clean (php73-compat skill)
+- [ ] PHP 8.2 floor — `php -l` on 8.2, PHPStan and the fixer clean
 - [ ] Tests added/updated; `@covers-requirement` tags present
 - [ ] Docblocks complete; no I/O in constructors; dependencies injected
 - [ ] No new runtime dependency (ADR-008)

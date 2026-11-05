@@ -1,8 +1,8 @@
 # Contributing
 
 Thanks for helping out. This library has one unusual constraint that shapes almost
-every rule below: **it must run unchanged on PHP 7.3**, because that is what a
-meaningful share of its users' shared hosts still run. Most of what follows falls out
+every rule below: **it must run on the shared hosts its users actually have**, on every
+PHP from 8.2 up, often with process functions disabled. Most of what follows falls out
 of that, plus a deliberate refusal to grow dependencies.
 
 ## Local development loop
@@ -12,21 +12,23 @@ composer install && composer tools:install
 composer cs:fix && composer stan && composer test      # before every push
 ```
 
-`composer tools:install` is a separate step because PHP-CS-Fixer cannot run on the
-PHP 7.3 floor and therefore lives in its own manifest under `tools/php-cs-fixer`
-rather than in `require-dev`; `composer cs` and `composer cs:fix` call it from there.
+`composer tools:install` is a separate step because PHP-CS-Fixer lives in its own
+manifest under `tools/php-cs-fixer` rather than in `require-dev`, so its large
+dependency tree never mixes with the library's; `composer cs` and `composer cs:fix`
+call it from there.
 
 Occasionally — and always before you claim something works on the floor version —
-run the suite inside a PHP 7.3 container:
+run the suite on PHP 8.2 itself: the local PHP matrix below does that for every
+supported version, or use a container:
 
 ```bash
-docker run --rm -v $PWD:/app -w /app php:7.3-cli sh -c 'composer install && composer test'
+docker run --rm -v $PWD:/app -w /app php:8.2-cli sh -c 'composer install && composer test'
 ```
 
 The library ships no `composer.lock`, so CI resolves dependencies per matrix job and
-uses `--prefer-lowest` on the floor to catch dependency floors. If you develop on
-PHP 8.x and want to check that resolution still works for 7.3, use the container
-above rather than committing a `platform` config.
+uses `--prefer-lowest` on the floor and on 8.4 to catch dependency floors. If you
+develop on a newer PHP and want to check that resolution still works for 8.2, use the
+matrix or the container above rather than committing a `platform` config.
 
 `composer goldens` regenerates the conformance goldens. It needs the official
 standalone binary and is only relevant when you touch the conformance corpus or the
@@ -34,52 +36,95 @@ utility tables.
 
 ### A note for Windows contributors
 
-`composer lint:73` is a `find … | xargs … php -l` pipeline and needs a POSIX shell.
+`composer lint:82` is a `find … | xargs … php -l` pipeline and needs a POSIX shell.
 On Windows run it from **Git Bash**, not from PowerShell or `cmd.exe`, whose `find`
 is a different program entirely. Everything else in the loop works from any shell.
 
-## PHP 7.3 is the floor
+### Local PHP matrix
 
-`"php": ">=7.3"`, with no upper bound. Do not use anything newer than 7.3 syntax in
-`src/`, `tests/`, `tools/` or `bin/`:
+`tools/php-matrix.php` runs every supported PHP minor on your machine, the same way the CI
+matrix does. The supported versions come from `require.php` in `composer.json`. An installed
+version below that floor is listed as "unsupported, skipped" and never run. Each version
+resolves its own dependency set with the highest versions. As in CI, the floor's minor and 8.4
+also get a cell with the lowest (`--prefer-lowest --prefer-stable`). Composer's advisory
+filter stays on everywhere.
 
-| Do not use | Since | Use instead |
-|------------|-------|-------------|
-| Typed properties `private string $x;` | 7.4 | Untyped property + `/** @var string */`, validate in the constructor |
-| Arrow functions `fn($x) => …` | 7.4 | `function ($x) use (…) { return …; }` |
-| `??=` | 7.4 | `if ($a === null) { $a = $b; }` or `$a = $a ?? $b` |
-| Numeric literal separators `1_000` | 7.4 | `1000` |
-| `proc_open` with an array command | 7.4 | Branch on `PHP_VERSION_ID`; escape and join on 7.3 |
-| Union types `int\|string`, `mixed`, `static` return | 8.0 | Docblock the type; check at runtime where it matters |
-| Nullsafe `$a?->b()` | 8.0 | `$a !== null ? $a->b() : null` |
-| Named arguments | 8.0 | Positional arguments; an options array when there are many |
-| `match` | 8.0 | `switch` with `break`, or a lookup array |
-| Constructor property promotion | 8.0 | Explicit properties and assignments |
-| Attributes `#[…]` | 8.0 | Docblock annotations |
-| Trailing comma in *parameter* lists | 8.0 | None — a trailing comma in a *call* is fine on 7.3 |
-| `catch (Throwable)` without a variable | 8.0 | `catch (\Throwable $e)` |
-| Enums | 8.1 | `final class` with constants and a validation method |
-| Readonly properties | 8.1 | Private property with a getter and no setter |
-| First-class callables `f(...)` | 8.1 | `[$obj, 'method']` or `Closure::fromCallable` |
-| `never` return type | 8.1 | `void` plus `@return never` in the docblock |
-| Typed class constants, `json_validate`, property hooks | 8.3 / 8.4 | Avoid |
+Then each cell runs `php -l` over `src/`, `tools/` and `bin/`, the Unit, Integration,
+Conformance and Security suites, and `tools/compare-drivers.php` on
+`tests/Fixtures/project-basic`. PHPStan, with both configurations, runs on the 8.3 cell only,
+as in CI. The whole run prints one table and exits 0 when every cell passes, 1 when one
+fails, and 2 on a usage or environment problem. Each cell's findings also print as soon as
+that cell ends.
+
+The tool finds the versions installed with [scoop](https://scoop.sh) (Windows):
+
+```bash
+scoop bucket add versions
+scoop install versions/php82 versions/php83 versions/php84 versions/php85
+```
+
+Installing a version moves scoop's `php` shim (and, for some versions, the user-level
+`PHP_INI_SCAN_DIR` variable) to that version. Run `scoop reset php<NN>` afterwards to put
+back the one you work with. The matrix itself never uses the shim. It calls each
+`apps\php<NN>\current\php.exe` directly with a php.ini it generates.
+
+```bash
+php tools/php-matrix.php --list                 # what was found, and what is unsupported
+php tools/php-matrix.php                        # the whole matrix (allow an hour or more)
+php tools/php-matrix.php --only=8.2,8.5         # some minors
+php tools/php-matrix.php --no-lowest            # the highest cells only
+php tools/php-matrix.php --only=8.2 --skip-install   # today's vendor/, no resolution
+php tools/php-matrix.php --kit=<project dir>    # also compare-drivers on a real project
+php tools/php-matrix.php --restore              # put vendor/ back after an interrupted run
+```
+
+While the matrix runs, your `vendor/` is moved to `.matrix/vendor-current/`, and it is moved
+back at the end, even after a failure. Don't run other tests in the same checkout meanwhile:
+give the matrix its own worktree if you need to keep working. Each cell's dependency set and
+lock stay under `.matrix/php<NN>/` or `.matrix/php<NN>-lowest/` (gitignored). A run, and
+`--restore`, holds `.matrix/lock`; a second run stops with exit 2 instead of moving `vendor/`
+twice. If the run is killed, the next run refuses to start: delete `.matrix/lock` once no
+`php.exe` of the run is left, then run `--restore`. A time limit ends only the step's own
+process, so check for orphaned `php.exe` after a step reports "[stopped after N seconds]".
+`vendor/` and `.matrix/` must be plain directories; the tool refuses a link or junction there.
+Composer runs with `--no-plugins --no-scripts`. The `--kit` project can also
+be set with the `TAILWINDPHP_MATRIX_KIT` environment variable. It is only read, but
+compare-drivers loads its `config/tailwind.php` exactly as the library would, so point it
+only at a project you trust.
+
+## PHP 8.2 is the floor
+
+`"php": ">=8.2"`, with no upper bound. PHP 7.3 to 8.1 are no longer supported: they
+carry published security advisories, and the development tooling that still runs on
+them cannot be kept advisory-free.
+
+The code base was written for the old 7.3 floor and has not been modernised. It uses
+no typed properties, arrow functions, `match`, enums, readonly properties or
+constructor promotion, and it keeps its types in docblocks. Moving it to 8.2 idioms is
+a separate, deliberate change, not something to do in passing. Until then:
+
+- write new code in the style of the code around it;
+- PHPStan still analyses `src/` and `tools/` with `phpVersion: 70300`; that pin moves
+  to `80200` together with the fixes the stricter analysis asks for;
+- PHP-CS-Fixer runs `@PHP82Migration` with two rewrites switched off (the `0o` octal
+  prefix and `??=`), so it leaves the existing code as it is.
 
 Every file starts with `declare(strict_types=1);`. Docblocks carry the types PHPStan
-needs at level 8, since the signatures cannot.
+needs at level 8.
 
-**Polyfill rule.** `str_contains`, `str_starts_with`, `str_ends_with`,
-`get_debug_type`, `fdiv` and `preg_last_error_msg` *are* allowed — they come from
-`symfony/polyfill-php80`, which is a required runtime dependency. Do not hand-roll
-them, and do not reach for a different polyfill package.
+`str_contains`, `str_starts_with`, `str_ends_with`, `get_debug_type`, `fdiv` and
+`preg_last_error_msg` are native on the floor. `symfony/polyfill-php80` stays a
+requirement while PHPStan is pinned to 70300, because it is what declares them to that
+analysis; it goes together with the pin. Do not hand-roll them.
 
-Three gates enforce this: `php -l` on a real 7.3 runtime, PHPStan with
-`phpVersion: 70300`, and PHP-CS-Fixer with `@PHP73Migration`. The last two run on
-8.3 because the tools themselves need a newer PHP.
+The gates: `php -l` on a real 8.2 runtime (the `lint-82` CI job), PHPStan and
+PHP-CS-Fixer (on 8.3 in CI), and the test matrix on 8.2, 8.3, 8.4 and 8.5.
 
 ## Dependencies are frozen
 
-Runtime requirements are `php`, `ext-json`, `psr/log` (interfaces only) and
-`symfony/polyfill-php80`. That is the whole list, and it is a deliberate architectural
+Runtime requirements are `php`, `ext-json`, `psr/log` (interfaces only) and, until
+the PHPStan pin moves to 8.2, `symfony/polyfill-php80`. That is the whole list, and it
+is a deliberate architectural
 decision, not an oversight — it is what makes the package installable on any host and
 auditable in an afternoon.
 
@@ -92,6 +137,14 @@ auditable in an afternoon.
 - **Dev dependency changes need maintainer approval** — adding, removing or widening
   a `require-dev` constraint affects every matrix job, so raise it in the issue or PR
   description and wait for a maintainer to agree.
+- **Known-vulnerable versions are blocked when dependencies resolve, and audited in CI.**
+  `roave/security-advisories` in `require-dev` makes Composer refuse any dependency
+  version with a published advisory, and Composer's own advisory filter does the same.
+  roave also refuses a PHP patch release with an advisory, so resolve with a current
+  patch of each minor. The Security job in CI runs `composer audit` on a fresh
+  resolution as well; run the same command locally. This is also why the floor is 8.2:
+  the end-of-life PHPs, and the dev tools that still support them, carry advisories of
+  their own.
 
 ## Tests
 
@@ -105,7 +158,7 @@ auditable in an afternoon.
 
 `composer test` runs the first four. `composer bench` runs the last.
 
-Conventions, all of which exist so the suite passes on PHPUnit 9.6, 10 and 11 alike:
+Conventions, all of which exist so the suite passes on PHPUnit 10 and 11 alike:
 
 - **Docblock annotations only** — `/** @test */`, `@dataProvider`, and
   `@covers-requirement FR-…` to tie a test to a requirement. No PHPUnit attributes.

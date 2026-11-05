@@ -7,13 +7,12 @@
 # Every test class then reports `class.notFound` plus follow-on `staticMethod.notFound`,
 # which are non-ignorable and say nothing about our own code.
 #
-# The PHP 7.3 floor for tests/ is therefore enforced by four other gates instead:
-#   * the real-7.3 `php -l` CI job (design doc 20 § ci.yml, lint-73),
-#   * the 7.3 and 7.4 cells of the CI test matrix,
-#   * php-cs-fixer's @PHP73Migration rule set, and
-#   * the php73-compat skill's forbidden-construct grep.
+# The PHP 8.2 floor for tests/ is therefore enforced by other gates instead:
+#   * the 8.2 `php -l` CI job (lint-82),
+#   * the 8.2 cells of the CI test matrix (lowest and highest dependencies), and
+#   * php-cs-fixer's @PHP82Migration rule set.
 #
-# src/ keeps its 7.3 pin in phpstan.neon.dist, which is where the floor actually matters.
+# src/ keeps its phpVersion pin in phpstan.neon.dist.
 parameters:
     level: 8
     paths:

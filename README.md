@@ -3,7 +3,7 @@
 > **Pre-release — not yet published on Packagist; API may change before 1.0.**
 
 **Tailwind CSS, compiled on demand from PHP.** No Node, no watcher, no build step. Edit a
-template or stylesheet, reload the page, see the change — on any host that runs PHP 7.3+,
+template or stylesheet, reload the page, see the change — on any host that runs PHP 8.2+,
 including shared hosting where `exec()` is disabled.
 
 > This project is an independent implementation and is not affiliated with, sponsored by, or
@@ -34,7 +34,7 @@ A warm request costs about a millisecond. There is nothing to run in the backgro
 composer require abhinaykhalatkar/tailwindcss-php
 ```
 
-Requirements: PHP ≥ 7.3, `ext-json`. Optional: `ext-zlib` (gzip artefacts), `ext-apcu`,
+Requirements: PHP ≥ 8.2, `ext-json`. Optional: `ext-zlib` (gzip artefacts), `ext-apcu`,
 `scssphp/scssphp` (SCSS entry files), `twig/twig` (Twig helper).
 
 ## Quick start
@@ -173,14 +173,14 @@ Security Advisories (see `SECURITY.md`).
 
 | | Supported |
 |---|---|
-| PHP | 7.3, 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 in the CI matrix, 8.5 as an experimental job; developed on 8.2 |
+| PHP | 8.2, 8.3, 8.4 in the CI matrix (lowest and highest dependencies on 8.2 and 8.4), 8.5 as an experimental job; developed on 8.2 |
 | Tailwind | v4 CSS-first semantics; the engine's goldens come from the official CLI 4.1.18 |
 | Web servers | Apache (mod_rewrite), nginx, PHP built-in server |
 | OS | Linux, macOS; Windows best-effort |
 
-PHP 7.3 and 7.4 are end-of-life upstream. This library runs on them so that you are not
-blocked by your host, but please upgrade PHP when you can — the library cannot make an old
-PHP safe.
+PHP 7.3 to 8.1 are not supported. They are end-of-life upstream and carry published security
+advisories, and the tooling that still runs on them cannot be kept advisory-free. If your host
+still runs one of them, ask it for PHP 8.2 or newer.
 
 ## Migrating from a scssphp-style pipeline
 
@@ -190,7 +190,7 @@ move to `respond()` and `tailwind_url()` when convenient. Details: `docs/integra
 
 ## Contributing
 
-See `CONTRIBUTING.md` for the development loop, the PHP 7.3 rules and the test
+See `CONTRIBUTING.md` for the development loop, the PHP 8.2 floor and the test
 conventions. Compatibility with Tailwind is measured, not claimed: run `composer test`
 and look at the compatibility report in `docs/compat/KNOWN-DIFFERENCES.md`.
 

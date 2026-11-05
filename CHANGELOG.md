@@ -7,20 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The minimum PHP version is 8.2; PHP 7.3–8.1 are no longer supported (they carry published
+  security advisories and their tooling cannot be kept advisory-free).
+
 ### Added
 
 - Composer package skeleton: `abhinaykhalatkar/tailwindcss-php`, PSR-4 autoloading for the
   `TailwindPhp\` namespace, the `tailwind-php` console entry point, and a runtime
-  requirement set limited to `php >=7.3`, `ext-json`, `psr/log` and
+  requirement set limited to `php >=8.2`, `ext-json`, `psr/log` and
   `symfony/polyfill-php80`.
 - PHPUnit test suites `Unit`, `Integration`, `Conformance`, `Security` and
-  `Benchmark`, configured to run identically on PHPUnit 9.6, 10 and 11.
-- PHPStan at level 8 analysing with PHP 7.3 semantics (`phpVersion: 70300`), so
-  7.4+ syntax and functions are reported on the floor version.
-- PSR-12 coding standard enforced by PHP-CS-Fixer (with `@PHP73Migration`) and
+  `Benchmark`, configured to run identically on PHPUnit 10 and 11.
+- PHPStan at level 8, analysing `src/` and `tools/` with `phpVersion: 70300` for now.
+- PSR-12 coding standard enforced by PHP-CS-Fixer (with `@PHP82Migration`) and
   PHP_CodeSniffer.
-- Continuous integration matrix covering PHP 7.3 through 8.5, with lowest and
-  highest dependency resolutions on the floor and the newest stable version, and a
+- Continuous integration matrix covering PHP 8.2 through 8.5, with lowest and
+  highest dependency resolutions on 8.2 and 8.4, and a
   restricted shared-host job that runs the suite without `zlib`/`apcu` and with the
   process functions disabled for the test process.
 - Security policy with private vulnerability reporting through GitHub Security

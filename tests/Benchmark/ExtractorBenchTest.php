@@ -110,7 +110,7 @@ final class ExtractorBenchTest extends TestCase
             $best = \min($best, (\microtime(true) - $started) * 1000);
         }
 
-        if (\PHP_VERSION_ID < 80100 || !\extension_loaded('Zend OPcache')) {
+        if (!\extension_loaded('Zend OPcache')) {
             self::markTestSkipped(\sprintf(
                 'Budgets assume opcache/JIT (CSF-A25); not loaded here. Measured anyway: %.1f ms/MB.',
                 $best
