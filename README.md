@@ -99,14 +99,24 @@ writable, and what to fix if something is off.
 | Driver | When | Fidelity |
 |--------|------|----------|
 | `cli` | `proc_open` available and the official standalone binary installed (`vendor/bin/tailwind-php install-cli`, checksum-verified) | 100 % — it *is* Tailwind |
-| `php` | Always available. Pure PHP, no process, no network | Tailwind v4 semantics; conformance measured against the official CLI on every commit — see `docs/compat/KNOWN-DIFFERENCES.md` |
+| `php` | Always available. Pure PHP, no process, no network | Tailwind v4.1 semantics for the Tier-1 utilities and variants. Measured against the official CLI 4.1.18 on 5 739 corpus candidates: 99.7 % identical, every difference listed in `docs/compat/KNOWN-DIFFERENCES.md` |
 
 `driver: auto` (default) picks `cli` when it is safe and available, else `php`.
 
-The PHP engine supports CSS-first Tailwind v4: `@theme`, `@source`, `@utility`,
-`@custom-variant`, `@apply`, responsive/state/group/peer/arbitrary variants, arbitrary
-values and properties, and the utility catalogue in `docs/compat/`. It does not execute
-JavaScript, so `@plugin` and `@config` require the `cli` driver.
+The PHP engine supports CSS-first Tailwind v4.1: `@import "tailwindcss"` (preflight and default
+theme), `@theme`, `@layer`, `@source`, static `@utility`, the shorthand form of `@custom-variant`
+(a selector, `@media`, `@supports`, `@container` or `(@starting-style)`), `@apply`,
+responsive/state/group/peer/arbitrary variants, and arbitrary values and properties for the
+Tier-1 utility catalogue. It does not execute JavaScript, so `@plugin` and `@config` require the
+`cli` driver; it reports them, and the other forms it does not know yet (a functional
+`@utility name-*`, the block form of `@custom-variant`), as a diagnostic. The Tier-2 utilities
+(for example `blur`, `drop-shadow`, 3D transforms, radial and conic gradients, `text-shadow`) and
+variants (`has-`, `not-`, `data-`, `aria-`, `supports-`, container queries) are planned for the
+next milestone; until then a project that uses them should run the `cli` driver.
+
+To see how the two drivers compare on your own project, run `php tools/compare-drivers.php
+<project-root>` from a checkout of this repository: it compiles the project with both and
+prints every difference (it needs the official binary, `vendor/bin/tailwind-php install-cli`).
 
 ## Configuration
 
@@ -136,7 +146,7 @@ vendor/bin/tailwind-php install-cli  # download the official binary (verified) �
 vendor/bin/tailwind-php url          # print the current fingerprinted URL
 vendor/bin/tailwind-php candidates --unknown   # "why is my class missing?"
 vendor/bin/tailwind-php clear
-vendor/bin/tailwind-php diff         # PHP engine vs CLI on your own project
+vendor/bin/tailwind-php diff         # planned: PHP engine vs CLI on your own project
 ```
 
 ## Deploying
@@ -163,8 +173,8 @@ Security Advisories (see `SECURITY.md`).
 
 | | Supported |
 |---|---|
-| PHP | 7.3, 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 (tested in CI) |
-| Tailwind | v4 CSS-first semantics; goldens from CLI v4.1.x |
+| PHP | 7.3, 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 in the CI matrix, 8.5 as an experimental job; developed on 8.2 |
+| Tailwind | v4 CSS-first semantics; the engine's goldens come from the official CLI 4.1.18 |
 | Web servers | Apache (mod_rewrite), nginx, PHP built-in server |
 | OS | Linux, macOS; Windows best-effort |
 

@@ -19,6 +19,21 @@ namespace TailwindPhp\Engine;
  *   with the new Tailwind version and resets the revision to `0`; that goes
  *   through the release procedure, never by hand.
  *
+ * In practice the revision bumps with any of these, because each one changes
+ * what an existing candidate compiles to: a regenerated golden whose existing
+ * rules differ from the committed ones, an allow-list entry removed because the
+ * engine now matches the CLI (or one added because it stopped matching), and a
+ * change under `Engine\Data\*` (default theme, preflight, utility rows, variant
+ * order) or in a handler that alters existing output. A new golden, a new corpus
+ * line or a new row that only adds a candidate that used to emit nothing does
+ * not.
+ *
+ * `compat-4.1.18.0` is the first value published with a real engine: the M1 stub
+ * reported `stub-m1`, so there is no earlier engine revision to bump from; its
+ * middle components are the version in `tests/Conformance/golden/VERSION`.
+ * `TailwindPhp\Version::VERSION` (the package version) is the owner's to change
+ * at tagging and is not this class.
+ *
  * Never instantiated.
  */
 final class Version
