@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use TailwindPhp\Engine\CompileOutput;
 use TailwindPhp\Engine\Compiler;
 use TailwindPhp\Engine\CompileRequest;
+use TailwindPhp\Engine\Css\Nesting;
 use TailwindPhp\Engine\Css\Node\AtRule;
 use TailwindPhp\Engine\Css\Node\Declaration;
 use TailwindPhp\Engine\Css\Node\Node;
@@ -402,6 +403,152 @@ final class CompilerTest extends TestCase
     /**
      * `@utility u0 … u3`, each applying ten variants of the next (u3 applies `p-4`).
      */
+    /**
+     * TASK-0053 item 5: an empty custom utility under variants writes no
+     * empty `@media (hover: hover) {}` (the CLI drops it) and no empty layer.
+     *
+     * @test
+     */
+    public function anEmptyUtilityUnderAVariantWritesNoEmptyBlock(): void
+    {
+        $css = "@import \"tailwindcss/utilities.css\" layer(utilities);\n@utility e { }\n";
+        $output = self::compile($css, ['hover:e', 'md:e', 'md:hover:e', 'e', 'flex']);
+
+        self::assertSame([], self::codes($output));
+        self::assertSame("@layer utilities {\n  .flex {\n    display: flex;\n  }\n}\n", $output->css);
+    }
+
+    /**
+     * T-05 (TASK-0053 item 1): deep variant stacks reach the flattener's byte
+     * budget (4 MiB of selectors and preludes) before the node cap. The byte
+     * room in the candidate loop drops the utilities first, with the one
+     * warning, so the sheet's tail — the authored CSS, every `@property` rule
+     * and the fallback — is written (before: the budget cut it, behind the
+     * generic byte message).
+     *
+     * @test
+     *
+     * @dataProvider deepStacks
+     */
+    public function deepVariantStacksStopAtTheByteRoomAndKeepTheTail(string $shape, bool $registers): void
+    {
+        $candidates = self::stack($shape);
+        $request = new CompileRequest(
+            self::ENTRY . ".authored-tail { color: red; }\n",
+            new InMemoryImportResolver([]),
+            $candidates
+        );
+        [$output, $cpu] = self::timed($request);
+
+        self::assertSame([Diagnostic::W_CANDIDATE_LIMIT], self::codes($output));
+        self::assertStringContainsString('4194304 bytes', $output->diagnostics->all()[0]->message());
+        self::assertGreaterThan(0, $output->stats['utilities']);
+        self::assertLessThan(30000, $output->stats['utilities']);
+        self::assertStringContainsString(".authored-tail {\n  color: red;\n}", $output->css);
+        self::assertLessThanOrEqual(Nesting::MAX_OUTPUT_BYTES, \strlen($output->css));
+        self::assertReparsesWithinTheCap($output);
+
+        if ($registers) {
+            self::assertStringContainsString('@layer properties {', $output->css, 'the fallback block');
+
+            foreach (\explode('@property ', $output->css) as $index => $part) {
+                if ($index > 0) {
+                    $name = \substr($part, 0, (int) \strpos($part, ' '));
+                    self::assertStringContainsString('      ' . $name . ': ', $output->css, $name . ' in the fallback');
+                }
+            }
+
+            self::assertGreaterThan(0, \substr_count($output->css, '@property '));
+        }
+
+        // A tripwire, not a budget: 2.0 s and 0.9 s here (3.5 s and 5.1 s before).
+        self::assertLessThan(10.0, $cpu, \sprintf('%.2f s of CPU', $cpu));
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: bool}>
+     */
+    public static function deepStacks(): array
+    {
+        return [
+            'eight variants on space-x, divide-x, ring and shadow' => ['eight', true],
+            'long group and peer names over an arbitrary variant' => ['named', false],
+        ];
+    }
+
+    /**
+     * TASK-0053 item 6, the four facts read from the pinned CLI. Registrations
+     * are taken in output order — the sorted utilities first (each
+     * candidate's utility names, then its variants'), then the applied
+     * candidates in splice order (the same split) — and a name's first
+     * registration decides its `@property` descriptor order.
+     *
+     * @test
+     *
+     * @dataProvider contentRegistrations
+     *
+     * @param list<string> $candidates
+     */
+    public function theFirstRegistrationDecidesTheDescriptorOrder(
+        string $css,
+        array $candidates,
+        bool $variantOrder
+    ): void {
+        $output = self::compile(self::ENTRY . $css, $candidates);
+        $variant = "@property --tw-content {\n  syntax: \"*\";\n  initial-value: \"\";\n  inherits: false;\n}";
+        $utility = "@property --tw-content {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: \"\";\n}";
+
+        self::assertSame([], self::codes($output));
+        self::assertSame(1, \substr_count($output->css, '@property --tw-content'));
+        self::assertStringContainsString($variantOrder ? $variant : $utility, $output->css);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: list<string>, 2: bool}>
+     */
+    public static function contentRegistrations(): array
+    {
+        return [
+            'before:flex and content-[x]' => ['', ['before:flex', 'content-[x]'], false],
+            'hover:content-[x] and before:flex' => ['', ['hover:content-[x]', 'before:flex'], true],
+            'an applied before:flex and the candidate content-[x]' => [
+                '.h { @apply before:flex; }',
+                ['content-[x]'],
+                false,
+            ],
+            'an applied before:flex alone' => ['.h { @apply before:flex; }', [], true],
+            'an applied content-[x] alone' => ['.h { @apply content-[x]; }', [], false],
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function stack(string $shape): array
+    {
+        $candidates = [];
+
+        if ($shape === 'eight') {
+            $stack = 'hover:focus:active:md:lg:dark:group-hover:peer-focus:';
+
+            for ($i = 0; \count($candidates) < 30000; ++$i) {
+                $candidates[] = $stack . 'space-x-' . $i;
+                $candidates[] = $stack . 'divide-x-' . $i;
+                $candidates[] = $stack . 'ring-' . $i;
+                $candidates[] = $stack . 'shadow-[0_0_' . $i . 'px_red]';
+            }
+
+            return \array_slice($candidates, 0, 30000);
+        }
+
+        for ($i = 0; $i < 30000; ++$i) {
+            $candidates[] = 'group-hover/' . \str_repeat('g', 60) . $i . ':peer-focus/' . \str_repeat('p', 60)
+                . ':[&_.' . \str_repeat('x', 50) . ']:flex';
+        }
+
+        return $candidates;
+    }
+
     private static function fanOut(string $import, string $prefix): string
     {
         $variants = ['hover', 'focus', 'active', 'visited', 'disabled', 'first', 'last', 'odd', 'even', 'checked'];

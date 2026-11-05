@@ -464,10 +464,13 @@ final class NestingTest extends TestCase
         // An at-rule, even an empty one, and a statement at-rule still count.
         $kept = Nesting::flatten(Parser::parse('.a { b { @media x {} } c { @import "x"; } }', $bag), $bag);
 
-        // The empty `@media` node is still produced (the serializer drops it).
-        self::assertCount(2, $kept->nodes);
-        self::assertInstanceOf(AtRule::class, $kept->nodes[0]);
+        // The `@media` block comes out empty and is not written (TASK-0053
+        // item 5: before, the node was produced and only the compact
+        // serializer dropped it; the pretty one wrote `@media x {}`).
+        self::assertCount(1, $kept->nodes);
+        self::assertInstanceOf(Rule::class, $kept->nodes[0]);
         self::assertSame('.a c{@import "x";}', Serializer::compact($kept));
+        self::assertSame(".a c {\n  @import \"x\";\n}\n", Serializer::pretty($kept));
         self::assertSame([], $bag->toArray());
     }
 
@@ -620,6 +623,187 @@ final class NestingTest extends TestCase
 
         self::assertSame([], $bag->toArray());
         self::assertCount(99991, $flat->nodes);
+    }
+
+    /**
+     * TASK-0053 item 5: a block at-rule that flattens to nothing is not
+     * written (the CLI drops it), however it got empty; statements stay.
+     *
+     * @test
+     *
+     * @dataProvider emptyBlocks
+     */
+    public function aBlockThatComesOutEmptyIsNotWritten(string $css, string $expected): void
+    {
+        $bag = new DiagnosticBag();
+        $flat = Nesting::flatten(Parser::parse($css, $bag), $bag);
+
+        self::assertSame([], $bag->toArray());
+        self::assertSame($expected, Serializer::compact($flat));
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function emptyBlocks(): array
+    {
+        return [
+            'an empty media block' => ['@media print {}', ''],
+            'a media block holding an empty rule' => ['@media print { .a {} }', ''],
+            'a media block inside a rule with no declarations' => ['.a { @media (hover: hover) {} }', ''],
+            'nested empty blocks' => ['@media (hover: hover) { @supports (x: y) { .a { } } }', ''],
+            'an empty named layer keeps the order as a statement' => [
+                '@layer utilities { @media (hover: hover) { .a { } } }',
+                '@layer utilities;',
+            ],
+            'an empty anonymous layer' => ['@layer { .a { } }', ''],
+            'a block holding only a comment' => ['@media print { /* nothing */ }', ''],
+            'an empty sibling dropped, the full one kept' => [
+                '@media print {} @media screen { .a { color: red } }',
+                '@media screen{.a{color:red}}',
+            ],
+            'a layer statement is not a block' => ['@layer base, utilities; @media print {}', '@layer base,utilities;'],
+            'an import is not a block' => ['@import "x.css"; .a {}', '@import "x.css";'],
+            'an empty font-face' => ['@font-face {}', ''],
+        ];
+    }
+
+    /**
+     * TASK-0053 item 1: `bytesOf()` is the walk's own charge, and charges add
+     * up — a sheet costs the sum of its top-level nodes, a layer around them
+     * its prelude more — which makes the compiler's per-utility byte room
+     * exact.
+     *
+     * @test
+     */
+    public function theByteChargeAddsUpAcrossTopLevelNodes(): void
+    {
+        $css = '.a { &:hover { @media (hover: hover) { color: red } } }'
+            . ' .b, .c::before { & .d { x: y } & > .e { z: w } }'
+            . ' .f { @supports (x: y) { &:is(:where(.group):hover *) { a: b } } }'
+            . ' @media print { .g { & .h { c: d } } }';
+        $nodes = Parser::parse($css, new DiagnosticBag())->nodes;
+        $sum = 0;
+
+        foreach ($nodes as $node) {
+            $sum += Nesting::bytesOf([$node]);
+        }
+
+        self::assertGreaterThan(0, $sum);
+        self::assertSame($sum, Nesting::bytesOf($nodes));
+        self::assertSame(
+            $sum + \strlen('layer') + \strlen('utilities'),
+            Nesting::bytesOf([new AtRule('layer', 'utilities', $nodes)])
+        );
+    }
+
+    /**
+     * Nodes the caller already flattened are written as they are (the same
+     * objects), and the output is what flattening them again would give.
+     *
+     * @test
+     */
+    public function alreadyFlattenedNodesAreWrittenAsTheyAre(): void
+    {
+        $nested = Parser::parse('.a { &:hover { color: red } @media print { x: y } }', new DiagnosticBag())->nodes;
+        [$flat, $bytes] = Nesting::flattenCharged($nested);
+        /** @var \SplObjectStorage<Node, mixed> $set */
+        $set = new \SplObjectStorage();
+
+        foreach ($flat as $node) {
+            $set->attach($node);
+        }
+
+        $sheet = new StyleSheet([new AtRule('layer', 'utilities', $flat)]);
+        $bag = new DiagnosticBag();
+        $out = Nesting::flatten($sheet, $bag, $set, $bytes);
+        $layer = $out->nodes[0];
+
+        self::assertSame([], $bag->toArray());
+        self::assertInstanceOf(AtRule::class, $layer);
+        self::assertSame($flat, $layer->nodes, 'the very same nodes');
+        self::assertSame(Serializer::compact(Nesting::flatten($sheet)), Serializer::compact($out));
+        self::assertSame($bytes, Nesting::bytesOf($nested));
+    }
+
+    /**
+     * They still count against the node cap …
+     *
+     * @test
+     */
+    public function alreadyFlattenedNodesCountAgainstTheNodeCap(): void
+    {
+        /** @var \SplObjectStorage<Node, mixed> $set */
+        $set = new \SplObjectStorage();
+        $nodes = [];
+
+        for ($i = 0; $i < 50001; ++$i) {
+            $rule = new Rule('.a' . $i, [new Declaration('x', 'y')]);
+            $set->attach($rule);
+            $nodes[] = $rule;
+        }
+
+        $bag = new DiagnosticBag();
+        $out = Nesting::flatten(new StyleSheet($nodes), $bag, $set, 0);
+
+        self::assertCount(1, $bag->all());
+        self::assertStringContainsString('more than 100000 nodes', $bag->all()[0]->message());
+        self::assertCount(50000, $out->nodes);
+    }
+
+    /**
+     * … and their charge is taken from the byte budget before the walk.
+     *
+     * @test
+     */
+    public function theirChargeIsTakenFromTheByteBudgetFirst(): void
+    {
+        $bag = new DiagnosticBag();
+        $sheet = new StyleSheet([new Rule('.a', [new Declaration('x', 'y')])]);
+
+        /** @var \SplObjectStorage<Node, mixed> $none */
+        $none = new \SplObjectStorage();
+
+        self::assertSame([], Nesting::flatten($sheet, $bag, $none, Nesting::MAX_OUTPUT_BYTES + 1)->nodes);
+        self::assertStringContainsString('more than 4194304 bytes', $bag->all()[0]->message());
+
+        $bag = new DiagnosticBag();
+        $last = Nesting::flatten($sheet, $bag, $none, Nesting::MAX_OUTPUT_BYTES - 2);
+
+        self::assertSame([], $last->nodes, 'two bytes are left; `.a` costs two and its chunk two more');
+        self::assertCount(1, $bag->all());
+    }
+
+    /**
+     * Past the budget the charge is `PHP_INT_MAX`, never a partial count.
+     *
+     * @test
+     */
+    public function aSubtreePastTheBudgetChargesTheMaximum(): void
+    {
+        self::assertSame(\PHP_INT_MAX, Nesting::bytesOf([self::manyNestedRules(300000)]));
+        self::assertSame(0, Nesting::bytesOf([]));
+    }
+
+    /**
+     * The node a dropped block took is given back: 99 998 empty blocks and
+     * then a rule still fit the cap.
+     *
+     * @test
+     */
+    public function aDroppedBlockGivesItsNodeBack(): void
+    {
+        $nodes = [];
+
+        for ($i = 0; $i < 99998; ++$i) {
+            $nodes[] = new AtRule('media', 'print', []);
+        }
+
+        $nodes[] = new Rule('.a', [new Declaration('x', 'y')]);
+        $flat = self::flattenWithBag(new StyleSheet($nodes), $bag);
+
+        self::assertSame([], $bag->toArray());
+        self::assertSame('.a{x:y}', Serializer::compact($flat));
     }
 
     /**

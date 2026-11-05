@@ -424,11 +424,12 @@ final class Processor
     }
 
     /**
-     * Author text echoed in a diagnostic: at most 64 bytes and an ellipsis,
-     * never cutting a UTF-8 sequence (T-06).
+     * Author text echoed in a diagnostic: made printable first (no control
+     * byte, invalid UTF-8 or bidi control: {@see Str::printable()}), then at
+     * most 64 bytes and an ellipsis, never cutting a UTF-8 sequence (T-06).
      */
     public static function echo(string $text): string
     {
-        return Str::truncateBytes($text, self::MAX_ECHO + 3, '…');
+        return Str::truncateBytes(Str::printable($text), self::MAX_ECHO + 3, '…');
     }
 }

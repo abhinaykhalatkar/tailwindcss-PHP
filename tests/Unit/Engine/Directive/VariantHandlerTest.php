@@ -122,6 +122,73 @@ final class VariantHandlerTest extends TestCase
         ];
     }
 
+    /**
+     * T-15 (TASK-0053 item 4): a custom-variant selector cannot carry markup.
+     *
+     * @test
+     *
+     * @dataProvider markup
+     */
+    public function aCustomVariantCarryingMarkupIsRefused(string $css): void
+    {
+        $run = new ProcessorHarness($css);
+
+        self::assertSame([Diagnostic::E_CSS_SYNTAX], $run->codes());
+        self::assertSame([], $run->sheet->customVariants);
+        self::assertNull($run->variants->get('v'));
+
+        foreach ($run->messages() as $message) {
+            self::assertStringNotContainsString('<', $message);
+        }
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function markup(): array
+    {
+        return [
+            'a closing style tag' => ['@custom-variant v (&</style><script>alert(1)</script>);'],
+            'an opening tag' => ['@custom-variant v (&<b);'],
+            'in a quoted value' => ['@custom-variant v (&[data-x="</style>"]);'],
+            'in the second selector' => ['@custom-variant v (&:hover, &</style>);'],
+            'a greater-than that is no combinator' => ['@custom-variant v (&>/style);'],
+            'a trailing greater-than' => ['@custom-variant v (&:is(.a >));'],
+            'an at-rule closing the style element' => ['@custom-variant v (@media (width</style));'],
+            'a selector closing it with no greater-than' => ['@custom-variant v (&:is(.a</style));'],
+        ];
+    }
+
+    /**
+     * @test
+     *
+     * @dataProvider combinators
+     *
+     * @param list<string> $selectors
+     */
+    public function aCombinatorOrRangeSyntaxIsKept(string $css, array $selectors, ?string $media): void
+    {
+        $run = new ProcessorHarness($css);
+        $definition = self::variant($run, 'v');
+
+        self::assertSame([], $run->codes());
+        self::assertSame($selectors, $definition->selectors());
+        self::assertSame($media, $definition->media());
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: list<string>, 2: string|null}>
+     */
+    public static function combinators(): array
+    {
+        return [
+            'a child combinator' => ['@custom-variant v (& > p);', ['& > p'], null],
+            'a relative selector' => ['@custom-variant v (&:has(> img));', ['&:has(> img)'], null],
+            'a quoted greater-than' => ['@custom-variant v (&[data-x="a>b"]);', ['&[data-x="a>b"]'], null],
+            'media range syntax' => ['@custom-variant v (@media (width > 40rem));', [], '(width > 40rem)'],
+        ];
+    }
+
     private static function variant(ProcessorHarness $run, string $name): Definition
     {
         $definition = $run->variants->get($name);

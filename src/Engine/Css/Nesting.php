@@ -88,6 +88,18 @@ final class Nesting
     /**
      * Total bytes of selectors and at-rule preludes one flatten may produce
      * (ENG-A14, amended) — the design doc 07 input cap.
+     *
+     * The budget charges work as well as output: a rule's selector is charged
+     * once when it is resolved and once more each time a chunk of its
+     * declarations is emitted, so it holds about 2 MiB of top-level selectors.
+     * Authored CSS of that size (it fits the 4 MiB entry cap) leaves the
+     * compiler's byte room empty — every candidate is dropped with
+     * `W_CANDIDATE_LIMIT` — and then reaches this budget's stop
+     * (`E_CSS_SYNTAX`, the tail lost); the byte room makes the stop
+     * unreachable for candidate-driven shapes only, and the entry cap bounds
+     * the authored case (TASK-0053). Declarations are not charged, so the
+     * whole output can pass 4 MiB (5 000 theme variables write 5.1 MB): the
+     * budget bounds selectors and preludes, not the sheet.
      */
     public const MAX_OUTPUT_BYTES = 4194304;
 
@@ -145,19 +157,87 @@ final class Nesting
      */
     private $emits;
 
+    /**
+     * Nodes written as they are (already flattened, already charged): see
+     * {@see self::flatten()}.
+     *
+     * @var \SplObjectStorage<Node, mixed>|null
+     */
+    private $flat;
+
     private function __construct(?DiagnosticBag $diagnostics)
     {
         $this->diagnostics = $diagnostics;
         $this->emits = new \SplObjectStorage();
     }
 
-    public static function flatten(StyleSheet $sheet, ?DiagnosticBag $diagnostics = null): StyleSheet
-    {
+    /**
+     * $flat holds nodes already flattened by {@see self::flattenCharged()}:
+     * wherever they sit outside any rule they are written as they are, their
+     * nodes still counted against the node cap and their bytes ($flatBytes,
+     * the sum of their charges) taken from the byte budget up front — so the
+     * budgets hold as if they were walked, without walking them twice.
+     *
+     * @param \SplObjectStorage<Node, mixed>|null $flat
+     */
+    public static function flatten(
+        StyleSheet $sheet,
+        ?DiagnosticBag $diagnostics = null,
+        ?\SplObjectStorage $flat = null,
+        int $flatBytes = 0
+    ): StyleSheet {
         $out = [];
+        $walker = new self($diagnostics);
+        $walker->flat = $flat;
 
-        (new self($diagnostics))->walk($sheet->nodes, null, null, 0, $out);
+        if ($flatBytes > 0 && !$walker->charge($flatBytes, null)) {
+            return new StyleSheet([]);
+        }
+
+        $walker->walk($sheet->nodes, null, null, 0, $out);
 
         return new StyleSheet($out);
+    }
+
+    /**
+     * The bytes {@see self::flatten()} charges to {@see self::MAX_OUTPUT_BYTES}
+     * for $nodes at the top level of a sheet — the same walk, the same
+     * `charge()` and `PART_CHARGE`, its output discarded — or `PHP_INT_MAX`
+     * when they alone would stop the walk (bytes or nodes).
+     *
+     * Charges add up: what top-level siblings cost does not depend on one
+     * another, and a block at-rule passes no rule context down, so the
+     * charge of a sheet is the sum of its top-level nodes' charges — the
+     * compiler's byte room (T-05, TASK-0053) charges each utility this way
+     * as it is appended and so stops before this budget can trip.
+     *
+     * @param list<Node> $nodes
+     */
+    public static function bytesOf(array $nodes): int
+    {
+        return self::flattenCharged($nodes)[1];
+    }
+
+    /**
+     * $nodes flattened as {@see self::flatten()} writes them at the top level
+     * of a sheet, with {@see self::bytesOf()} their charge — one walk for
+     * both, so a caller that must know the charge before it keeps the nodes
+     * (the compiler's byte room) need not flatten twice: flattening flat CSS
+     * again gives it back unchanged, and costs a fraction of the first walk.
+     * No diagnostics: past a budget the charge is `PHP_INT_MAX` and the nodes
+     * are what was written before it.
+     *
+     * @param list<Node> $nodes
+     *
+     * @return array{0: list<Node>, 1: int}
+     */
+    public static function flattenCharged(array $nodes): array
+    {
+        $out = [];
+        $walker = new self(null);
+        $walker->walk($nodes, null, null, 0, $out);
+
+        return [$out, $walker->stopped ? \PHP_INT_MAX : self::MAX_OUTPUT_BYTES - $walker->budget];
     }
 
     /**
@@ -179,6 +259,14 @@ final class Nesting
         foreach ($nodes as $node) {
             if ($this->stopped) {
                 return;
+            }
+
+            if ($context === null && $this->flat !== null && $this->flat->contains($node)) {
+                if ($this->admit(self::nodeCount($node), null)) {
+                    $out[] = $node;
+                }
+
+                continue;
             }
 
             if ($node instanceof Rule) {
@@ -251,6 +339,23 @@ final class Nesting
                     $inner
                 );
 
+                // A block that came out empty is not written, as the CLI
+                // drops it (`@media (hover: hover) {}` under an empty
+                // utility); its node goes back to the budget. A named
+                // `@layer x {}` still fixes the layer order, so it becomes
+                // the statement `@layer x;` (as lightningcss writes it).
+                // Statements (`@layer x;`, `@import`) have no block and never
+                // get here.
+                if (!self::holdsAnything($inner)) {
+                    if (\strtolower($node->name) === 'layer' && \trim($node->params) !== '') {
+                        $out[] = new AtRule($node->name, $node->params, null, $node->line, $node->col);
+                    } else {
+                        ++$this->nodesLeft;
+                    }
+
+                    continue;
+                }
+
                 $out[] = new AtRule($node->name, $node->params, $inner, $node->line, $node->col);
 
                 continue;
@@ -268,6 +373,41 @@ final class Nesting
         }
 
         $this->flush($context, $origin, $chunk, $out);
+    }
+
+    /**
+     * The nodes the parser would count in $node and below (comments are none).
+     */
+    private static function nodeCount(Node $node): int
+    {
+        if ($node instanceof Comment) {
+            return 0;
+        }
+
+        $count = 1;
+        $children = $node instanceof Rule ? $node->nodes : ($node instanceof AtRule ? ($node->nodes ?? []) : []);
+
+        foreach ($children as $child) {
+            $count += self::nodeCount($child);
+        }
+
+        return $count;
+    }
+
+    /**
+     * Whether flattened block contents hold anything but comments.
+     *
+     * @param list<Node> $nodes
+     */
+    private static function holdsAnything(array $nodes): bool
+    {
+        foreach ($nodes as $node) {
+            if (!$node instanceof Comment) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

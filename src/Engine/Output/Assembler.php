@@ -147,8 +147,15 @@ final class Assembler
     }
 
     /**
+     * $variantFirst names those of $properties a variant registered before any
+     * utility did (`before:` → `--tw-content`): the CLI writes their
+     * descriptors `syntax`, `initial-value`, `inherits`, where a utility's
+     * registration writes `syntax`, `inherits`, `initial-value` (TASK-0053).
+     * The first registration wins, as in the CLI.
+     *
      * @param list<Node> $utilities The generated utility rules, sorted.
      * @param list<string> $properties The `--tw-*` properties to register, in order.
+     * @param list<string> $variantFirst
      *
      * @throws \LogicException When a property to register has no definition in {@see self::PROPERTIES}.
      */
@@ -156,7 +163,8 @@ final class Assembler
         ProcessedSheet $sheet,
         ThemeRegistry $theme,
         array $utilities,
-        array $properties
+        array $properties,
+        array $variantFirst = []
     ): StyleSheet {
         $prefix = $sheet->prefix;
         $properties = \array_values(\array_unique($properties));
@@ -214,8 +222,10 @@ final class Assembler
             $nodes[] = $node;
         }
 
+        $byVariant = \array_flip($variantFirst);
+
         foreach ($properties as $property) {
-            $nodes[] = self::propertyRule($property);
+            $nodes[] = self::propertyRule($property, isset($byVariant[$property]));
         }
 
         foreach (self::keyframesOf($emittable, $theme) as $keyframes) {
@@ -368,25 +378,31 @@ final class Assembler
     }
 
     /**
-     * @throws \LogicException
+     * One `@property` rule; $variantOrder puts `initial-value` before
+     * `inherits`, as the CLI writes a variant's registration.
+     *
+     * @throws \LogicException When $property has no definition in {@see self::PROPERTIES}.
      */
-    private static function propertyRule(string $property): AtRule
+    private static function propertyRule(string $property, bool $variantOrder = false): AtRule
     {
         if (!isset(self::PROPERTIES[$property])) {
             throw new \LogicException(\sprintf('No @property definition for %s.', $property));
         }
 
         [$syntax, $initial] = self::PROPERTIES[$property];
-        $declarations = [
-            new Declaration('syntax', '"' . $syntax . '"'),
-            new Declaration('inherits', 'false'),
-        ];
+        $syntaxDeclaration = new Declaration('syntax', '"' . $syntax . '"');
+        $inherits = new Declaration('inherits', 'false');
 
-        if ($initial !== null) {
-            $declarations[] = new Declaration('initial-value', $initial);
+        if ($initial === null) {
+            return new AtRule('property', $property, [$syntaxDeclaration, $inherits]);
         }
 
-        return new AtRule('property', $property, $declarations);
+        $initialValue = new Declaration('initial-value', $initial);
+        $descriptors = $variantOrder
+            ? [$syntaxDeclaration, $initialValue, $inherits]
+            : [$syntaxDeclaration, $inherits, $initialValue];
+
+        return new AtRule('property', $property, $descriptors);
     }
 
     /**

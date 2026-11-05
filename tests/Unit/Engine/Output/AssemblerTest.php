@@ -103,6 +103,59 @@ final class AssemblerTest extends TestCase
         );
     }
 
+    /**
+     * TASK-0053 item 6: the CLI writes a property a variant registered first
+     * (`before:` / `after:` → `--tw-content`) as `syntax`, `initial-value`,
+     * `inherits`, and one a utility registered first (`content-[…]`) as
+     * `syntax`, `inherits`, `initial-value` (`golden/variants/pseudo-elements.css`
+     * against `golden/utilities/flexbox-grid.css`). Only the order differs,
+     * never a value (T-15).
+     *
+     * @test
+     */
+    public function aPropertyAVariantRegisteredFirstKeepsTheVariantDescriptorOrder(): void
+    {
+        $content = ['--tw-content'];
+        $variant = self::render(Assembler::assemble(self::sheet([]), self::theme(), [], $content, $content));
+        $utility = self::render(Assembler::assemble(self::sheet([]), self::theme(), [], $content));
+
+        self::assertStringContainsString(
+            '@property --tw-content{syntax:"*";initial-value:"";inherits:false}',
+            $variant
+        );
+        self::assertStringContainsString(
+            '@property --tw-content{syntax:"*";inherits:false;initial-value:""}',
+            $utility
+        );
+        self::assertSame(
+            \str_replace('initial-value:"";inherits:false', 'inherits:false;initial-value:""', $variant),
+            $utility,
+            'nothing else differs'
+        );
+    }
+
+    /**
+     * A property without an initial value has no order to change.
+     *
+     * @test
+     */
+    public function aVariantRegistrationWithoutAnInitialValueIsUnchanged(): void
+    {
+        $ring = ['--tw-ring-color'];
+        $css = self::render(Assembler::assemble(self::sheet([]), self::theme(), [], $ring, $ring));
+
+        self::assertStringContainsString('@property --tw-ring-color{syntax:"*";inherits:false}', $css);
+    }
+
+    /** @test */
+    public function aVariantFirstNameThatIsNotRegisteredIsIgnored(): void
+    {
+        self::assertSame(
+            self::render(Assembler::assemble(self::sheet([]), self::theme(), [], ['--tw-ring-color'])),
+            self::render(Assembler::assemble(self::sheet([]), self::theme(), [], ['--tw-ring-color'], ['--tw-content']))
+        );
+    }
+
     /** @test */
     public function anUnknownPropertyIsAProgrammingError(): void
     {

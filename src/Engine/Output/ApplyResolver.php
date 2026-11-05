@@ -104,9 +104,12 @@ final class ApplyResolver
     private $used = [];
 
     /**
-     * @var list<string>
+     * The `--tw-*` names the spliced bodies register, in splice order, each
+     * with whether a variant registered it (true) or the utility (false).
+     *
+     * @var list<array{0: string, 1: bool}>
      */
-    private $properties = [];
+    private $registrations = [];
 
     /**
      * @var int Expanded nodes the applied bodies may still add, this compile.
@@ -180,7 +183,25 @@ final class ApplyResolver
      */
     public function properties(): array
     {
-        return \array_values(\array_unique($this->properties));
+        $names = [];
+
+        foreach ($this->registrations as [$property]) {
+            $names[] = $property;
+        }
+
+        return \array_values(\array_unique($names));
+    }
+
+    /**
+     * Every registration of the spliced bodies, in splice order: the name and
+     * whether a variant registered it. The CLI writes a name's `@property`
+     * descriptors in the order of its first registration's kind (TASK-0053).
+     *
+     * @return list<array{0: string, 1: bool}>
+     */
+    public function registrations(): array
+    {
+        return $this->registrations;
     }
 
     /**
@@ -275,7 +296,7 @@ final class ApplyResolver
                 return;
             }
 
-            $entries[] = $entry + [2 => $raw];
+            $entries[] = $entry + [4 => $raw];
         }
 
         \usort($entries, static function (array $a, array $b): int {
@@ -292,7 +313,7 @@ final class ApplyResolver
         $endsWithDeclarations = self::endsWithDeclarations($host->nodes);
         $total = 0;
 
-        foreach ($entries as [, $nodes, $raw]) {
+        foreach ($entries as [, $nodes, , , $raw]) {
             if ($nodes === []) {
                 continue;
             }
@@ -316,9 +337,19 @@ final class ApplyResolver
 
         $this->budget -= $total;
 
-        foreach ($entries as [, $nodes]) {
+        // Registered as spliced, in splice order — each candidate's utility
+        // names, then its variants' — and only what is spliced.
+        foreach ($entries as [, $nodes, $byUtility, $byVariant]) {
             foreach ($nodes as $node) {
                 $host->nodes[] = $node;
+            }
+
+            foreach ($byUtility as $property) {
+                $this->registrations[] = [$property, false];
+            }
+
+            foreach ($byVariant as $property) {
+                $this->registrations[] = [$property, true];
             }
         }
     }
@@ -357,7 +388,7 @@ final class ApplyResolver
      * @param list<Candidate> $readings
      * @param int $cost Set to the nodes of a body that compiled but is refused.
      *
-     * @return array{0: SortKey, 1: list<Node>}|null
+     * @return array{0: SortKey, 1: list<Node>, 2: list<string>, 3: list<string>}|null
      */
     private function compile(string $raw, array $readings, int &$cost): ?array
     {
@@ -392,10 +423,6 @@ final class ApplyResolver
             $this->used[] = $name;
         }
 
-        foreach (\array_merge($compiled->properties, $wrapped->properties()) as $property) {
-            $this->properties[] = $property;
-        }
-
         $key = SortKey::of(
             $readings[0]->variants,
             $wrapped->variantOrders(),
@@ -405,7 +432,7 @@ final class ApplyResolver
             $this->breakpoints
         );
 
-        return [$key, $body];
+        return [$key, $body, $compiled->properties, $wrapped->properties()];
     }
 
     /**

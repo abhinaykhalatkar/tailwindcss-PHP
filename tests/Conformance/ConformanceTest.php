@@ -54,32 +54,6 @@ final class ConformanceTest extends TestCase
     private const LIMITS = ['W_CANDIDATE_LIMIT', 'E_APPLY_DEPTH', 'E_IMPORT_DEPTH', 'W_FILE_TOO_LARGE'];
 
     /**
-     * Region differences, by corpus entry and the comparator's label for the region.
-     *
-     * The allow-list names candidates, and `tools/KnownDifferences` refuses a name with a
-     * space in it, so a region cannot be listed there. These two are listed here instead,
-     * with the same honesty rule: the row fails when the region starts to match, and an
-     * unlisted region still fails. Remove an entry when the engine is fixed.
-     *
-     * `--tw-content` is registered by the `before:`/`after:` variants with the descriptors
-     * in the order `syntax`, `initial-value`, `inherits`; the engine writes `syntax`,
-     * `inherits`, `initial-value` for every name, as the CLI does when the `content-[…]`
-     * utility registers it. The order has no meaning to a browser; it is a difference in
-     * the bytes only, and the assembler (TASK-0034) or the comparator's canonical form
-     * should absorb it, neither of which is in this task's scope.
-     *
-     * @var array<string, array<string, string>>
-     */
-    private const REGION_DIFFERENCES = [
-        'variants/pseudo-elements' => [
-            '(property) --tw-content' => '@property descriptor order of --tw-content under before:/after:',
-        ],
-        'variants/stacking' => [
-            '(property) --tw-content' => '@property descriptor order of --tw-content under before:/after:',
-        ],
-    ];
-
-    /**
      * @var array<string, array{problems: list<string>, records: list<array{0: string, 1: string, 2: bool}>}>
      */
     private static $measured = [];
@@ -398,10 +372,8 @@ final class ConformanceTest extends TestCase
         }
 
         // A region (theme, `@property`, layers) is compared as a whole and never excused by a
-        // candidate; the few differences of REGION_DIFFERENCES are the exception.
-        $regions = self::REGION_DIFFERENCES[$key] ?? [];
-        $seen = [];
-
+        // candidate (the last region difference, `@property` descriptor order, is fixed in the
+        // assembler: TASK-0053).
         foreach ($result->failures() as $failure) {
             $label = $failure['candidate'];
 
@@ -409,20 +381,7 @@ final class ConformanceTest extends TestCase
                 continue;
             }
 
-            if (isset($regions[$label])) {
-                $seen[$label] = true;
-
-                continue;
-            }
-
             $problems[] = $failure['status'] . ' ' . $label . self::excerpt($failure['expected'], $failure['actual']);
-        }
-
-        foreach ($regions as $label => $reason) {
-            if (!isset($seen[$label])) {
-                $problems[] = 'STALE region ' . $label . ' is listed as a known difference (' . $reason
-                    . ') but matches now: remove it from REGION_DIFFERENCES.';
-            }
         }
 
         $first = [];

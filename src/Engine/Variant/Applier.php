@@ -74,6 +74,17 @@ final class Applier
     private const AT_RULE_NAME_BYTES = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-';
 
     /**
+     * Bytes that may follow a `>` combinator: the start of a compound selector.
+     */
+    private const COMPOUND_START = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.#[:*&|\\';
+
+    /**
+     * Bytes that may precede a `>` combinator: the end of a compound selector,
+     * or what opens a relative selector (`(`, `,`).
+     */
+    private const COMPOUND_END = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-])*&(,';
+
+    /**
      * @var Registry
      */
     private $registry;
@@ -87,6 +98,106 @@ final class Applier
     {
         $this->registry = $registry;
         $this->diagnostics = $diagnostics;
+    }
+
+    /**
+     * Whether a variant selector is free of markup (T-15): no `<` anywhere —
+     * not escaped, not inside a quoted value, since `</style` inside a CSS
+     * string still ends an HTML `<style>` element — and `>` only as a
+     * combinator or inside a quoted value.
+     *
+     * A `>` is a combinator when the next non-space byte starts a compound
+     * selector (a name, `.`, `#`, `[`, `:`, `*`, `&`, `|`, `\`, or UTF-8) and
+     * the previous one ends one (a name, `]`, `)`, `*`, `&`, UTF-8) or opens a
+     * relative selector (start, `(`, `,`): `&>*`, `& > p`, `&:has(> img)`.
+     * An escaped `>` is part of a name. Used for arbitrary variants here and
+     * for `@custom-variant` selectors by `Directive\VariantHandler`.
+     */
+    public static function isMarkupFree(string $selector): bool
+    {
+        if (\strpos($selector, '<') !== false) {
+            return false;
+        }
+
+        if (\strpos($selector, '>') === false) {
+            return true;
+        }
+
+        $length = \strlen($selector);
+        $quote = '';
+
+        for ($i = 0; $i < $length; ++$i) {
+            $char = $selector[$i];
+
+            if ($char === '\\') {
+                ++$i;
+
+                continue;
+            }
+
+            if ($quote !== '') {
+                $quote = $char === $quote ? '' : $quote;
+
+                continue;
+            }
+
+            if ($char === '"' || $char === '\'') {
+                $quote = $char;
+
+                continue;
+            }
+
+            if ($char === '>' && !self::isCombinatorAt($selector, $i, $length)) {
+                return false;
+            }
+        }
+
+        // An unterminated quote may hide a `>` from the scan above.
+        return $quote === '';
+    }
+
+    /**
+     * Whether at-rule text from a variant is free of the one markup sequence
+     * that matters inside a `<style>` element: `</`. `<` and `>` are range
+     * syntax there (`(width < 40rem)`).
+     */
+    public static function isAtRuleMarkupFree(string $text): bool
+    {
+        return \strpos($text, '</') === false;
+    }
+
+    private static function isCombinatorAt(string $selector, int $at, int $length): bool
+    {
+        $before = $at - 1;
+
+        while ($before >= 0 && ($selector[$before] === ' ' || $selector[$before] === "\t")) {
+            --$before;
+        }
+
+        $after = $at + 1;
+
+        while ($after < $length && ($selector[$after] === ' ' || $selector[$after] === "\t")) {
+            ++$after;
+        }
+
+        if ($after >= $length) {
+            return false;
+        }
+
+        $next = $selector[$after];
+        $startsCompound = \strpos(self::COMPOUND_START, $next) !== false || \ord($next) >= 0x80;
+
+        if (!$startsCompound) {
+            return false;
+        }
+
+        if ($before < 0) {
+            return true;
+        }
+
+        $previous = $selector[$before];
+
+        return \strpos(self::COMPOUND_END, $previous) !== false || \ord($previous) >= 0x80;
     }
 
     /**
@@ -192,7 +303,10 @@ final class Applier
 
         $value = (string) $variant->arbitrary;
 
-        if (\trim($value) === '' || !ArbitraryValue::isSafe($value)) {
+        // The value lands in a selector or an at-rule prelude, by the row.
+        $markupFree = $row->selectors() === [] ? self::isAtRuleMarkupFree($value) : self::isMarkupFree($value);
+
+        if (\trim($value) === '' || !ArbitraryValue::isSafe($value) || !$markupFree) {
             return $this->invalid($variant->name);
         }
 
@@ -236,6 +350,10 @@ final class Applier
             return $this->arbitraryAtRule($content, $current);
         }
 
+        if (!self::isMarkupFree($content)) {
+            return $this->invalid('');
+        }
+
         $selector = SelectorList::containsAmpersand($content) ? $content : '&:is(' . $content . ')';
 
         return [
@@ -261,6 +379,7 @@ final class Applier
             || ($params === '' && $name !== 'starting-style')
             || ($params !== '' && $name === 'starting-style')
             || SelectorList::containsAmpersand($content)
+            || !self::isAtRuleMarkupFree($params)
         ) {
             return $this->invalid('');
         }

@@ -211,4 +211,87 @@ final class StrTest extends TestCase
         self::assertSame(200, \strlen($result));
         self::assertSame('...', \substr($result, -3));
     }
+
+    /**
+     * T-06 (TASK-0053): text a diagnostic echoes cannot break a log line or
+     * `json_encode` — each control byte, invalid UTF-8 byte, C1 control, bidi
+     * control or line separator becomes one `?`.
+     *
+     * @test
+     *
+     * @dataProvider unprintable
+     */
+    public function printableReplacesEachUnsafeByteOrSequence(string $subject, string $expected): void
+    {
+        $result = Str::printable($subject);
+
+        self::assertSame($expected, $result);
+        self::assertNotFalse(\json_encode($result), 'the result is valid UTF-8');
+        self::assertLessThanOrEqual(\strlen($subject), \strlen($result), 'never longer');
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function unprintable(): array
+    {
+        return [
+            'NUL' => ["a\x00b", 'a?b'],
+            'SOH' => ["a\x01b", 'a?b'],
+            'tab' => ["a\tb", 'a?b'],
+            'newline' => ["a\nb", 'a?b'],
+            'carriage return' => ["a\r\nb", 'a??b'],
+            'ESC sequence' => ["\x1b[31mred\x1b[0m", '?[31mred?[0m'],
+            'DEL' => ["a\x7fb", 'a?b'],
+            'C1 control (U+0085)' => ["a\xc2\x85b", 'a?b'],
+            'C1 CSI (U+009B)' => ["a\xc2\x9bb", 'a?b'],
+            'lone continuation byte' => ["a\x80b", 'a?b'],
+            'lone lead byte' => ["a\xc3", 'a?'],
+            'truncated three-byte sequence' => ["a\xe2\x80b", 'a??b'],
+            'overlong slash' => ["a\xc0\xafb", 'a??b'],
+            'overlong three-byte' => ["\xe0\x80\xaf", '???'],
+            'UTF-16 surrogate' => ["\xed\xa0\x80", '???'],
+            'past U+10FFFF' => ["\xf4\x90\x80\x80", '????'],
+            'byte FF' => ["\xff", '?'],
+            'LRE U+202A' => ["a\xe2\x80\xaab", 'a?b'],
+            'RLO U+202E' => ["a\xe2\x80\xaeb", 'a?b'],
+            'LRI U+2066' => ["a\xe2\x81\xa6b", 'a?b'],
+            'PDI U+2069' => ["a\xe2\x81\xa9b", 'a?b'],
+            'LRM U+200E' => ["a\xe2\x80\x8eb", 'a?b'],
+            'RLM U+200F' => ["a\xe2\x80\x8fb", 'a?b'],
+            'ALM U+061C' => ["a\xd8\x9cb", 'a?b'],
+            'line separator U+2028' => ["a\xe2\x80\xa8b", 'a?b'],
+            'paragraph separator U+2029' => ["a\xe2\x80\xa9b", 'a?b'],
+        ];
+    }
+
+    /**
+     * @test
+     *
+     * @dataProvider printableAlready
+     */
+    public function printableKeepsPrintableText(string $subject): void
+    {
+        self::assertSame($subject, Str::printable($subject));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function printableAlready(): array
+    {
+        return [
+            'empty' => [''],
+            'ASCII with punctuation' => ['@custom-variant x (&:hover) { } ~`!@#$%^&*()_+-=[]\\|;:\'",.<>/?'],
+            'two-byte (é)' => ["caf\xc3\xa9"],
+            'ellipsis U+2026' => ["abc\xe2\x80\xa6"],
+            'em dash U+2014' => ["a\xe2\x80\x94b"],
+            'U+202F (narrow no-break space, next to the bidi block)' => ["a\xe2\x80\xafb"],
+            'U+2065 (unassigned, before the isolates)' => ["a\xe2\x81\xa5b"],
+            'CJK' => ["\xe4\xb8\xad\xe6\x96\x87"],
+            'emoji (four bytes)' => ["\xf0\x9f\x98\x80"],
+            'U+10FFFF' => ["\xf4\x8f\xbf\xbf"],
+            'U+00A0 (first after C1)' => ["\xc2\xa0"],
+        ];
+    }
 }

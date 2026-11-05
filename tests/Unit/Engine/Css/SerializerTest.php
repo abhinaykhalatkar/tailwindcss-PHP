@@ -244,6 +244,101 @@ final class SerializerTest extends TestCase
         self::assertSame($once, Serializer::compact(self::parse($once)));
     }
 
+    /**
+     * T-05 (TASK-0053 item 2): merging adjacent identical bodies stops before
+     * the merged selector list would pass the parser's construct cap, so
+     * compact output always re-parses; the pretty form is untouched.
+     *
+     * @test
+     */
+    public function twentyThousandIdenticalBodiesStillReparse(): void
+    {
+        $nodes = [];
+
+        for ($i = 0; $i < 20000; ++$i) {
+            $nodes[] = new Rule('.u' . $i, [new Declaration('color', 'red')]);
+        }
+
+        $sheet = new StyleSheet($nodes);
+        $compact = Serializer::compact($sheet);
+        $bag = new DiagnosticBag();
+        $reparsed = Parser::parse($compact, $bag);
+
+        self::assertSame([], $bag->toArray(), 'the compact output re-parses');
+        // `.uNNNNN,` is 7–8 bytes: the byte bound stops each list first.
+        self::assertCount(3, $reparsed->nodes);
+
+        foreach ($reparsed->nodes as $rule) {
+            self::assertInstanceOf(Rule::class, $rule);
+            self::assertLessThanOrEqual(Parser::MAX_CONSTRUCT_TOKENS, \strlen($rule->selector));
+            self::assertLessThanOrEqual(Serializer::MAX_MERGED_SELECTORS, \substr_count($rule->selector, ',') + 1);
+        }
+
+        self::assertSame(20000, \substr_count($compact, '.u'), 'every selector is kept');
+        $pretty = Serializer::pretty($sheet);
+
+        self::assertSame(20000, \substr_count($pretty, "{\n  color: red;\n}"), 'pretty never merges');
+    }
+
+    /**
+     * One-byte selectors reach the count cap before the byte bound.
+     *
+     * @test
+     */
+    public function shortSelectorsStopTheMergeByCount(): void
+    {
+        $nodes = [];
+
+        for ($i = 0; $i < 20000; ++$i) {
+            $nodes[] = new Rule('a', [new Declaration('color', 'red')]);
+        }
+
+        $compact = Serializer::compact(new StyleSheet($nodes));
+        $bag = new DiagnosticBag();
+        $reparsed = Parser::parse($compact, $bag);
+
+        self::assertSame([], $bag->toArray());
+        self::assertCount(2, $reparsed->nodes);
+        $firstPrelude = (string) \substr($compact, 0, (int) \strpos($compact, '{'));
+
+        self::assertSame(Serializer::MAX_MERGED_SELECTORS, \substr_count($firstPrelude, ',') + 1);
+    }
+
+    /**
+     * Long selectors reach the token cap before the selector count does: the
+     * merge also stops at {@see Parser::MAX_CONSTRUCT_TOKENS} bytes of prelude
+     * (every token is at least one byte).
+     *
+     * @test
+     */
+    public function longSelectorsStopTheMergeByBytes(): void
+    {
+        $nodes = [];
+        $long = \str_repeat('.a', 200);
+
+        for ($i = 0; $i < 600; ++$i) {
+            $nodes[] = new Rule($long . ' .u' . $i, [new Declaration('color', 'red')]);
+        }
+
+        $compact = Serializer::compact(new StyleSheet($nodes));
+        $bag = new DiagnosticBag();
+        $reparsed = Parser::parse($compact, $bag);
+
+        self::assertSame([], $bag->toArray());
+        self::assertGreaterThan(1, \count($reparsed->nodes));
+
+        foreach ($reparsed->nodes as $rule) {
+            self::assertInstanceOf(Rule::class, $rule);
+            self::assertLessThanOrEqual(Parser::MAX_CONSTRUCT_TOKENS, \strlen($rule->selector));
+        }
+    }
+
+    /** @test */
+    public function theMergeCapIsAQuarterOfTheConstructCap(): void
+    {
+        self::assertSame(\intdiv(Parser::MAX_CONSTRUCT_TOKENS, 4), Serializer::MAX_MERGED_SELECTORS);
+    }
+
     private static function parse(string $css): StyleSheet
     {
         $bag = new DiagnosticBag();

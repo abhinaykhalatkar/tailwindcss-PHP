@@ -39,6 +39,16 @@ use TailwindPhp\Engine\Css\Node\StyleSheet;
 final class Serializer
 {
     /**
+     * The most selectors `compact` merges into one list (T-05, TASK-0053): a
+     * quarter of {@see Parser::MAX_CONSTRUCT_TOKENS}, since a merged selector
+     * costs at least a comma, a delimiter and a name. The merge also stops
+     * once the list would pass `MAX_CONSTRUCT_TOKENS` bytes — every token is at
+     * least one byte — so a compact rule's prelude always re-parses; a long
+     * run of identical bodies becomes several adjacent rules (same cascade).
+     */
+    public const MAX_MERGED_SELECTORS = 12500;
+
+    /**
      * Length units whose zero may drop the unit in compact output.
      *
      * @var array<string, true>
@@ -195,6 +205,8 @@ final class Serializer
         $texts = [];
         /** @var array<int, list<string>> $selectors per rule item */
         $selectors = [];
+        /** @var array<int, int> $preludeBytes per rule item: its selectors joined with commas */
+        $preludeBytes = [];
 
         foreach ($nodes as $node) {
             if (self::tooDeep($node, $level)) {
@@ -213,12 +225,21 @@ final class Serializer
                 $vendor = \strpos($selector, ':-') !== false;
                 $last = \count($kinds) - 1;
 
-                if (!$vendor && $last >= 0 && $kinds[$last] === 'rule' && $texts[$last] === $body) {
+                if (
+                    !$vendor
+                    && $last >= 0
+                    && $kinds[$last] === 'rule'
+                    && $texts[$last] === $body
+                    && \count($selectors[$last]) < self::MAX_MERGED_SELECTORS
+                    && $preludeBytes[$last] + 1 + \strlen($selector) <= Parser::MAX_CONSTRUCT_TOKENS
+                ) {
                     $selectors[$last][] = $selector;
+                    $preludeBytes[$last] += 1 + \strlen($selector);
 
                     continue;
                 }
 
+                $preludeBytes[\count($kinds)] = \strlen($selector);
                 $selectors[\count($kinds)] = [$selector];
                 $kinds[] = $vendor ? 'vendor-rule' : 'rule';
                 $texts[] = $body;

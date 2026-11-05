@@ -730,6 +730,115 @@ final class ApplierTest extends TestCase
      * be written readably (`(hover: hover)`, `a, b`) while the structure it names
      * (what is nested in what, in what order) is compared exactly.
      */
+    /**
+     * T-15 (TASK-0053 item 4): a variant selector cannot carry markup. `<` is
+     * refused everywhere — inside a quoted value too, since `</style` in a CSS
+     * string still ends an HTML `<style>` element — and `>` everywhere but as a
+     * combinator between compound selectors or inside a quoted value.
+     *
+     * @test
+     *
+     * @dataProvider markupSelectors
+     */
+    public function anArbitraryVariantCarryingMarkupIsRefused(string $selector): void
+    {
+        $bag = new DiagnosticBag();
+        $variant = new Variant('', null, $selector, '[' . $selector . ']');
+
+        self::assertFalse(Applier::isMarkupFree($selector));
+        self::assertNull(self::applier($bag)->wrap(self::decls(), [$variant], self::CLASS_SELECTOR));
+        self::assertSame([Diagnostic::W_INVALID_ARBITRARY], \array_map(static function (Diagnostic $d): string {
+            return $d->code();
+        }, $bag->all()));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function markupSelectors(): array
+    {
+        return [
+            'a closing style tag' => ['&</style><script>x</script>'],
+            'an opening tag' => ['&<b'],
+            'a bare less-than' => ['& < .x'],
+            'a less-than inside a quoted value' => ['&[data-x="</style>"]'],
+            'an escaped less-than' => ['&\\</style'],
+            'a greater-than ending the selector' => ['&>'],
+            'a greater-than before a slash' => ['&>/style'],
+            'a doubled combinator' => ['& >> .x'],
+            'a greater-than after a combinator' => ['& + > .x'],
+            'a greater-than before a comma' => ['&:is(.a >, .b)'],
+            'a greater-than before a closing paren' => ['&:is(.a >)'],
+            'an unterminated quote hiding a greater-than' => ['&[data-x=">'],
+        ];
+    }
+
+    /**
+     * @test
+     *
+     * @dataProvider markupFreeSelectors
+     */
+    public function aCombinatorOrAQuotedGreaterThanIsKept(string $selector, string $expected): void
+    {
+        $variant = new Variant('', null, $selector, '[' . $selector . ']');
+
+        self::assertTrue(Applier::isMarkupFree($selector));
+        self::same($expected, self::text(self::wrapped([$variant])));
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function markupFreeSelectors(): array
+    {
+        return [
+            'child of the host' => ['&>*', '.c{&>*{display:flex}}'],
+            'spaced child combinator' => ['& > p', '.c{& > p{display:flex}}'],
+            'a relative selector in :has()' => ['&:has(> img)', '.c{&:has(> img){display:flex}}'],
+            'after a list comma' => ['&:is(.a, > .b)', '.c{&:is(.a, > .b){display:flex}}'],
+            'before an attribute' => ['&>[data-x]', '.c{&>[data-x]{display:flex}}'],
+            'before a pseudo-class' => ['&>:first-child', '.c{&>:first-child{display:flex}}'],
+            'after an attribute' => ['[dir]>&', '.c{[dir]>&{display:flex}}'],
+            'a greater-than in a quoted value' => ['&[data-x="a>b"]', '.c{&[data-x="a>b"]{display:flex}}'],
+            'an escaped greater-than in a name' => ['&.a\\>b', '.c{&.a\\>b{display:flex}}'],
+        ];
+    }
+
+    /**
+     * The at-rule paths have no markup check of their own beyond `</`: `<`
+     * and `>` are range syntax there (`(width < 40rem)`).
+     *
+     * @test
+     */
+    public function anArbitraryBreakpointCannotCloseTheStyleElement(): void
+    {
+        $bag = new DiagnosticBag();
+        // `</style` with no `>`: everything else passes it (`ArbitraryValue::isSafe`).
+        $variant = new Variant('min', null, '1px</style', 'min-[1px</style]');
+
+        self::assertNull(self::applier($bag)->wrap(self::decls(), [$variant], self::CLASS_SELECTOR));
+        self::assertCount(1, $bag->all());
+        self::assertSame(Diagnostic::W_INVALID_ARBITRARY, $bag->all()[0]->code());
+    }
+
+    /** @test */
+    public function anArbitraryAtRuleCannotCloseTheStyleElement(): void
+    {
+        $bag = new DiagnosticBag();
+        $variant = new Variant('', null, '@media (width</style)', '[@media (width</style)]');
+
+        self::assertNull(self::applier($bag)->wrap(self::decls(), [$variant], self::CLASS_SELECTOR));
+        self::assertSame(Diagnostic::W_INVALID_ARBITRARY, $bag->all()[0]->code());
+    }
+
+    /** @test */
+    public function rangeSyntaxStaysValidInAnArbitraryAtRule(): void
+    {
+        $variant = new Variant('', null, '@media (width > 40rem)', '[@media (width > 40rem)]');
+
+        self::same('.c{@media (width > 40rem){display:flex}}', self::text(self::wrapped([$variant])));
+    }
+
     private static function same(string $expected, string $actual): void
     {
         self::assertSame(self::css($expected), self::css($actual));

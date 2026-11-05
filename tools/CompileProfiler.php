@@ -45,8 +45,11 @@ use TailwindPhp\Tests\Support\InMemoryImportResolver;
  * `Engine\Compiler` itself, times that as a whole, and compares the two
  * stylesheets byte for byte: the table says whether the phases reproduced the
  * engine's output, so a timing is never quoted for a run that did something
- * else. The run omits the compiler's node-cap accounting (T-05), which only
- * matters past a hundred thousand nodes; no corpus entry comes near it, and the
+ * else. Like the compiler, the candidate loop flattens each utility as it goes
+ * (`Nesting::flattenCharged()`) and the final flatten writes those nodes as they
+ * are, so the phase split matches the engine's. The run omits the compiler's
+ * node and byte rooms (T-05), which only matter past a hundred thousand nodes
+ * or four mebibytes of selectors; no corpus entry comes near them, and the
  * byte comparison would show the day one did.
  *
  * Inputs are corpus entries only (T-01): a key is looked up in `CorpusPaths`'
@@ -392,6 +395,9 @@ final class CompileProfiler
 
         $entries = [];
         $used = [];
+        /** @var \SplObjectStorage<Node, mixed> $flatSet */
+        $flatSet = new \SplObjectStorage();
+        $flatBytes = 0;
 
         foreach (self::candidates($request, $sheet) as $raw) {
             $readings = $parser->parse($raw);
@@ -413,6 +419,15 @@ final class CompileProfiler
                 continue;
             }
 
+            // Flattened here, as the compiler does to learn the byte charge;
+            // the final flatten then writes these nodes as they are.
+            [$flatNodes, $bytes] = Nesting::flattenCharged($wrapped->nodes());
+            $flatBytes += $bytes;
+
+            foreach ($flatNodes as $node) {
+                $flatSet->attach($node);
+            }
+
             foreach ($compiled->usedVars as $name) {
                 $used[$name] = true;
             }
@@ -426,8 +441,9 @@ final class CompileProfiler
                     $raw,
                     $sheet->breakpoints
                 ),
-                $wrapped->nodes(),
-                \array_merge($compiled->properties, $wrapped->properties()),
+                $flatNodes,
+                $compiled->properties,
+                $wrapped->properties(),
             ];
         }
 
@@ -440,14 +456,20 @@ final class CompileProfiler
 
         $rules = [];
         $properties = [];
+        // First registration wins: a variant's first registration takes the
+        // CLI's other `@property` descriptor order, as in the compiler.
+        $registeredBy = [];
 
-        foreach ($entries as [, $nodes, $registered]) {
+        foreach ($entries as [, $nodes, $byUtility, $byVariant]) {
             foreach ($nodes as $node) {
                 $rules[] = $node;
             }
 
-            foreach ($registered as $property) {
-                $properties[] = $property;
+            foreach ([[$byUtility, false], [$byVariant, true]] as [$registered, $variant]) {
+                foreach ($registered as $property) {
+                    $properties[] = $property;
+                    $registeredBy[$property] = $registeredBy[$property] ?? $variant;
+                }
             }
         }
 
@@ -455,14 +477,23 @@ final class CompileProfiler
             $theme->markUsed((string) $name);
         }
 
-        foreach ($applies->properties() as $property) {
+        foreach ($applies->registrations() as [$property, $variant]) {
             $properties[] = $property;
+            $registeredBy[$property] = $registeredBy[$property] ?? $variant;
         }
 
-        $assembled = Assembler::assemble($sheet, $theme, $rules, $properties);
+        $variantFirst = [];
+
+        foreach ($registeredBy as $property => $variant) {
+            if ($variant) {
+                $variantFirst[] = (string) $property;
+            }
+        }
+
+        $assembled = Assembler::assemble($sheet, $theme, $rules, $properties, $variantFirst);
         $timings['assemble'] = self::lap($mark);
 
-        $flat = Nesting::flatten($assembled, $bag);
+        $flat = Nesting::flatten($assembled, $bag, $flatSet, $flatBytes);
         $timings['flatten'] = self::lap($mark);
 
         $css = $request->minify ? Serializer::compact($flat) : Serializer::pretty($flat);

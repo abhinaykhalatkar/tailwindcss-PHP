@@ -64,6 +64,13 @@ final class Compiler
     private const PREFLIGHT_NODES = 200;
 
     /**
+     * Bytes kept back from the utilities' byte room for what the sheet
+     * without utilities does not hold: the `@layer utilities` prelude (14
+     * bytes), with room to spare.
+     */
+    private const BYTE_SLACK = 1024;
+
+    /**
      * @var UtilityRegistry|null
      */
     private $utilities;
@@ -139,7 +146,9 @@ final class Compiler
 
         // T-05: the output must re-parse, so the whole sheet stays within the
         // parser's node cap — the applied bodies first, then the utilities.
-        $fixed = self::fixedNodes($theme);
+        // Every `@keyframes` a theme variable names: only those can be emitted.
+        $keyframes = Assembler::keyframesOf($theme->allVars(), $theme);
+        $fixed = self::fixedNodes($theme, $keyframes);
         $authored = ApplyResolver::flatSize($sheet->authored);
         $applies = new ApplyResolver(
             $parser,
@@ -159,9 +168,18 @@ final class Compiler
         [$candidates, $dropped] = self::candidates($request, $sheet);
         $authoredAfter = ApplyResolver::flatSize($sheet->authored);
         $room = $authoredAfter >= CssParser::MAX_NODES ? 0 : CssParser::MAX_NODES - $fixed - $authoredAfter;
+        // T-05: and within the flattener's byte budget, so the utilities are
+        // dropped (with the warning) before the budget could cut the sheet's
+        // tail — the authored CSS, `@property`, the fallback.
+        $byteRoom = self::byteRoom($sheet, $theme);
+        // The utilities as the loop flattened them, and what they were charged:
+        // the final flatten writes them as they are.
+        /** @var \SplObjectStorage<Node, mixed> $flatNodes */
+        $flatNodes = new \SplObjectStorage();
+        $flatBytes = 0;
 
         foreach ($candidates as $index => $raw) {
-            if ($room <= 0) {
+            if ($room <= 0 || $byteRoom <= 0) {
                 $dropped += \count($candidates) - $index;
 
                 break;
@@ -199,14 +217,24 @@ final class Compiler
             }
 
             $size = ApplyResolver::flatSize($wrapped->nodes());
+            // Flattened here, by the flattener's own walk, to learn its byte
+            // charge; the flat nodes are what the sheet keeps, so the final
+            // flatten only re-reads them.
+            [$flat, $bytes] = $size > $room ? [[], 0] : Nesting::flattenCharged($wrapped->nodes());
 
-            if ($size > $room) {
+            if ($size > $room || $bytes > $byteRoom) {
                 $dropped += \count($candidates) - $index;
 
                 break;
             }
 
             $room -= $size;
+            $byteRoom -= $bytes;
+            $flatBytes += $bytes;
+
+            foreach ($flat as $node) {
+                $flatNodes->attach($node);
+            }
 
             foreach ($compiled->usedVars as $name) {
                 $used[$name] = true;
@@ -221,17 +249,20 @@ final class Compiler
                     $raw,
                     $sheet->breakpoints
                 ),
-                $wrapped->nodes(),
-                \array_merge($compiled->properties, $wrapped->properties()),
+                $flat,
+                $compiled->properties,
+                $wrapped->properties(),
             ];
         }
 
         if ($dropped > 0) {
             $bag->add(new Diagnostic(Diagnostic::WARNING, Diagnostic::W_CANDIDATE_LIMIT, \sprintf(
-                '%d candidates were not compiled: a stylesheet holds at most %d candidates and %d nodes.',
+                '%d candidates were not compiled: a stylesheet holds at most %d candidates, %d nodes '
+                . 'and %d bytes of selectors.',
                 $dropped,
                 $request->maxCandidates,
-                CssParser::MAX_NODES
+                CssParser::MAX_NODES,
+                Nesting::MAX_OUTPUT_BYTES
             )));
         }
 
@@ -241,14 +272,21 @@ final class Compiler
 
         $rules = [];
         $properties = [];
+        // The names a variant registered before any utility did (the CLI
+        // writes their descriptors in another order): first registration
+        // wins, in sort order, the utility's own before its variants'.
+        $registeredBy = [];
 
-        foreach ($entries as [, $nodes, $registered]) {
+        foreach ($entries as [, $nodes, $byUtility, $byVariant]) {
             foreach ($nodes as $node) {
                 $rules[] = $node;
             }
 
-            foreach ($registered as $property) {
-                $properties[] = $property;
+            foreach ([[$byUtility, false], [$byVariant, true]] as [$registered, $variant]) {
+                foreach ($registered as $property) {
+                    $properties[] = $property;
+                    $registeredBy[$property] = $registeredBy[$property] ?? $variant;
+                }
             }
         }
 
@@ -256,12 +294,24 @@ final class Compiler
             $theme->markUsed((string) $name);
         }
 
-        foreach ($applies->properties() as $property) {
+        // Then the authored CSS's applied candidates, in splice order, with
+        // their own utility/variant split (`.h { @apply before:flex }` alone
+        // registers `--tw-content` by a variant, as in the CLI).
+        foreach ($applies->registrations() as [$property, $variant]) {
             $properties[] = $property;
+            $registeredBy[$property] = $registeredBy[$property] ?? $variant;
         }
 
-        $assembled = Assembler::assemble($sheet, $theme, $rules, $properties);
-        $flat = Nesting::flatten($assembled, $bag);
+        $variantFirst = [];
+
+        foreach ($registeredBy as $property => $variant) {
+            if ($variant) {
+                $variantFirst[] = (string) $property;
+            }
+        }
+
+        $assembled = Assembler::assemble($sheet, $theme, $rules, $properties, $variantFirst);
+        $flat = Nesting::flatten($assembled, $bag, $flatNodes, $flatBytes);
         $css = $request->minify ? Serializer::compact($flat) : Serializer::pretty($flat);
 
         return new CompileOutput(
@@ -336,17 +386,44 @@ final class Compiler
      * blocks, the preflight, every theme variable, every `@property` rule with
      * its fallback, and every `@keyframes` a theme variable names, counted
      * exactly (only those can be emitted).
+     *
+     * @param list<AtRule> $keyframes
      */
-    private static function fixedNodes(ThemeRegistry $theme): int
+    private static function fixedNodes(ThemeRegistry $theme, array $keyframes): int
     {
-        $keyframes = 0;
+        $nodes = 0;
 
-        foreach (Assembler::keyframesOf($theme->allVars(), $theme) as $rule) {
-            $keyframes += ApplyResolver::expandedSize([$rule], CssParser::MAX_NODES);
+        foreach ($keyframes as $rule) {
+            $nodes += ApplyResolver::expandedSize([$rule], CssParser::MAX_NODES);
         }
 
         return 16 + self::PREFLIGHT_NODES + \count($theme->allVars())
-            + 5 * \count(Assembler::PROPERTIES) + $keyframes;
+            + 5 * \count(Assembler::PROPERTIES) + $nodes;
+    }
+
+    /**
+     * Bytes of {@see Nesting::MAX_OUTPUT_BYTES} the utilities may take: what
+     * is left once the rest of the sheet is charged, measured by the
+     * flattener's own accounting ({@see Nesting::bytesOf()}) — the sheet
+     * assembled without utilities but with every `@property` rule and its
+     * fallback (the most the utilities can register), the authored CSS after
+     * `@apply`, every `@keyframes` a theme variable names, and
+     * {@see self::BYTE_SLACK} for the utilities layer's own prelude.
+     */
+    private static function byteRoom(ProcessedSheet $sheet, ThemeRegistry $theme): int
+    {
+        // Every theme variable used, so the sheet holds every `@keyframes` one
+        // names, once (a variable's own declaration costs no bytes).
+        $everything = clone $theme;
+
+        foreach (\array_keys($everything->allVars()) as $name) {
+            $everything->markUsed((string) $name);
+        }
+
+        $rest = Assembler::assemble($sheet, $everything, [], \array_keys(Assembler::PROPERTIES));
+        $fixed = Nesting::bytesOf($rest->nodes);
+
+        return $fixed === \PHP_INT_MAX ? 0 : \max(0, Nesting::MAX_OUTPUT_BYTES - $fixed - self::BYTE_SLACK);
     }
 
     /**

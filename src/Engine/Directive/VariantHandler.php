@@ -8,6 +8,7 @@ use TailwindPhp\Engine\Candidate\Value\ArbitraryValue;
 use TailwindPhp\Engine\Css\Node\AtRule;
 use TailwindPhp\Engine\Diagnostic\Diagnostic;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
+use TailwindPhp\Engine\Variant\Applier;
 use TailwindPhp\Engine\Variant\Definition;
 use TailwindPhp\Engine\Variant\Registry;
 
@@ -73,6 +74,17 @@ final class VariantHandler
             return null;
         }
 
+        if (!self::isMarkupFree($inner, $row)) {
+            $message = \sprintf(
+                '@custom-variant %s has markup in it (a less-than sign, or a greater-than sign that is not '
+                . 'a combinator); it is ignored.',
+                Processor::echo($name)
+            );
+            self::report($variant, Diagnostic::E_CSS_SYNTAX, $message, $bag);
+
+            return null;
+        }
+
         $row['order'] = $registry->nextOrder();
 
         try {
@@ -86,6 +98,28 @@ final class VariantHandler
         }
 
         return [$name, $definition];
+    }
+
+    /**
+     * T-15: a selector variant passes {@see Applier::isMarkupFree()} for every
+     * selector; an at-rule variant may use `<`/`>` as range syntax but never
+     * `</` ({@see Applier::isAtRuleMarkupFree()}).
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function isMarkupFree(string $inner, array $row): bool
+    {
+        if (!isset($row['selector'])) {
+            return Applier::isAtRuleMarkupFree($inner);
+        }
+
+        foreach ((array) $row['selector'] as $selector) {
+            if (!Applier::isMarkupFree((string) $selector)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

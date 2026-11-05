@@ -11,6 +11,7 @@ use TailwindPhp\Engine\Css\Node\Node;
 use TailwindPhp\Engine\Css\Node\Rule;
 use TailwindPhp\Engine\Css\Node\StyleSheet;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
+use TailwindPhp\Support\Str;
 
 /**
  * CSS parser producing the engine's AST (design doc 07 §Phase 1).
@@ -713,9 +714,13 @@ final class Parser
         $this->report('Unexpected end of input; a block was not closed', $eof);
     }
 
+    /**
+     * The snippet is the author's own text: made printable before the
+     * tokenizer cuts it to its 64 bytes (T-06).
+     */
     private function report(string $message, Token $at, string $snippet = ''): void
     {
-        $this->tokenizer->report($message, $at->line, $at->col, $snippet);
+        $this->tokenizer->report($message, $at->line, $at->col, Str::printable($snippet));
     }
 
     /**

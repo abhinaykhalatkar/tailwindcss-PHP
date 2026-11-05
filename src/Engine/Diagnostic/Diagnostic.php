@@ -6,6 +6,7 @@ namespace TailwindPhp\Engine\Diagnostic;
 
 use TailwindPhp\Exception\LogSafety;
 use TailwindPhp\Support\Bytes;
+use TailwindPhp\Support\Str;
 
 /**
  * One compiler-level problem with a stable, documented code
@@ -161,11 +162,16 @@ final class Diagnostic
         $this->level = $level;
         $this->code = $code;
         // Free text reaches the manifest and the overlay verbatim, so it is
-        // scrubbed at construction rather than at each consumer.
-        $this->message = LogSafety::scrubText($message);
+        // scrubbed at construction rather than at each consumer: made
+        // printable (no control byte, invalid UTF-8 or bidi control, so it
+        // cannot break a log line or json_encode), then cleared of paths.
+        // The echo helpers make the author's text printable before their own
+        // length cut; this is the backstop for every other producer, and it
+        // never lengthens a message.
+        $this->message = LogSafety::scrubText(Str::printable($message));
         $this->file = $file;
         $this->line = $line;
-        $this->candidate = $candidate === null ? null : LogSafety::scrubText($candidate);
+        $this->candidate = $candidate === null ? null : LogSafety::scrubText(Str::printable($candidate));
     }
 
     public function level(): string
