@@ -19,6 +19,8 @@ planning/
 
 /vendor/
 /composer.lock
+# tools/php-matrix.php: per-version manifests, locks, ini files and parked vendor sets.
+/.matrix/
 /build/
 /tools/.cache/
 .phpunit.result.cache
