@@ -175,8 +175,10 @@ final class DriverResolver implements DriverResolverInterface
         // nothing; locating the binary touches the filesystem, so on the common
         // shared-hosting case — `proc_open` disabled — this returns before any
         // I/O at all.
-        if (!$this->environment()->processFunctionAvailable()) {
-            return $this->fallBackToPhp($explicit, 'proc_open is unavailable on this host');
+        $missing = $this->environment()->missingProcessFunction();
+
+        if ($missing !== null) {
+            return $this->fallBackToPhp($explicit, $missing . ' is unavailable on this host');
         }
 
         $binary = $this->binaryPath($cliConfig);

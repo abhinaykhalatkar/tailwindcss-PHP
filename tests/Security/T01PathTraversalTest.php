@@ -7,6 +7,7 @@ namespace TailwindPhp\Tests\Security;
 use PHPUnit\Framework\TestCase;
 use TailwindPhp\Config\ConfigBuilder;
 use TailwindPhp\Exception\ConfigurationException;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -219,6 +220,9 @@ final class T01PathTraversalTest extends TestCase
         if (\DIRECTORY_SEPARATOR !== '\\') {
             return \symlink($target, $link);
         }
+
+        // `mklink` runs through `exec`: skipped where the host disables it.
+        RequiresSpawning::checkExec();
 
         $command = \sprintf(
             'mklink /J "%s" "%s"',

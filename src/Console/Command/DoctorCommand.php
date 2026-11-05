@@ -164,12 +164,16 @@ final class DoctorCommand extends AbstractCommand
      */
     private function checkFunctions(Output $output): void
     {
-        if ((new Environment())->processFunctionAvailable()) {
+        // Labelled with the function that is actually missing: a host without
+        // `usleep` must not be told that `proc_open` is the problem.
+        $missing = (new Environment())->missingProcessFunction();
+
+        if ($missing === null) {
             $this->ok($output, 'proc_open', 'available');
         } else {
             $this->warn(
                 $output,
-                'proc_open',
+                $missing,
                 'disabled',
                 'The CLI driver cannot run; the PHP engine still can. Check disable_functions in php.ini.'
             );

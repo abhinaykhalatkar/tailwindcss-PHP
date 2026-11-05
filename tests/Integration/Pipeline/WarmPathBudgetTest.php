@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TailwindPhp\Tests\Integration\Pipeline;
 
 use PHPUnit\Framework\TestCase;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -93,6 +94,9 @@ final class WarmPathBudgetTest extends TestCase
      */
     private function probe(string $mode, string $root): string
     {
+        // Out of process through `exec`: skipped where the host disables it.
+        RequiresSpawning::checkExec();
+
         $command = \escapeshellarg(\PHP_BINARY)
             . ' ' . \escapeshellarg(__DIR__ . '/warm-path-probe.php')
             . ' ' . \escapeshellarg($mode)

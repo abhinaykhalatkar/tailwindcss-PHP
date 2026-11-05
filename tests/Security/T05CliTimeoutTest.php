@@ -13,6 +13,7 @@ use TailwindPhp\Compiler\CompileOptions;
 use TailwindPhp\Exception\CliTimeoutException;
 use TailwindPhp\Support\Filesystem;
 use TailwindPhp\Tests\Support\InMemoryImportResolver;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -81,6 +82,9 @@ final class T05CliTimeoutTest extends TestCase
         \mkdir($this->cacheDir, 0777, true);
 
         TempTree::registerShutdownCleanup($this->root);
+
+        // Last, so tearDown() still has real directories to clean up when it skips.
+        RequiresSpawning::check();
     }
 
     protected function tearDown(): void

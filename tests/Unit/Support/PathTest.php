@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use TailwindPhp\Exception\PathException;
 use TailwindPhp\Support\Path;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -745,6 +746,10 @@ final class PathTest extends TestCase
      */
     private function makeJunction(string $link, string $target): bool
     {
+        // `mklink` runs through `exec`: skipped where the host disables it, in
+        // addition to the Windows-only guard each junction row has.
+        RequiresSpawning::checkExec();
+
         $command = \sprintf(
             'mklink /J "%s" "%s"',
             \str_replace('/', '\\', $link),

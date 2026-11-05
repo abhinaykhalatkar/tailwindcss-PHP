@@ -12,6 +12,7 @@ use TailwindPhp\Compiler\Cli\StandaloneCliCompiler;
 use TailwindPhp\Compiler\CompileOptions;
 use TailwindPhp\Support\Filesystem;
 use TailwindPhp\Tests\Support\InMemoryImportResolver;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -108,6 +109,9 @@ final class T03CliArgvTest extends TestCase
         \mkdir($this->cacheDir, 0777, true);
 
         TempTree::registerShutdownCleanup($this->root);
+
+        // Every row runs the fixture binary. Last, so tearDown() has its directory.
+        RequiresSpawning::check();
     }
 
     protected function tearDown(): void

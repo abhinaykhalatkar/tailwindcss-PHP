@@ -15,6 +15,7 @@ use TailwindPhp\Engine\Diagnostic\Diagnostic;
 use TailwindPhp\Exception\CliProcessException;
 use TailwindPhp\Support\Filesystem;
 use TailwindPhp\Tests\Support\InMemoryImportResolver;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -68,6 +69,7 @@ final class StandaloneCliCompilerTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        RequiresSpawning::check();
 
         $this->root = TempTree::make('tailwindphp-cli-compiler');
         $this->cacheDir = $this->root . '/cache';

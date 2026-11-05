@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TailwindPhp\Tests\Unit\Tools;
 
 use PHPUnit\Framework\TestCase;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 use TailwindPhp\Tools\PhpMatrix;
 
@@ -997,9 +998,7 @@ final class PhpMatrixTest extends TestCase
     /** @test */
     public function theRealRunnerKeepsStdoutAndStderrInterleavedInOneFile(): void
     {
-        if (!\function_exists('proc_open')) {
-            self::markTestSkipped('proc_open is disabled on this host.');
-        }
+        RequiresSpawning::check();
 
         $runner = PhpMatrix::processRunner($this->root . '/tmp');
         // Stderr written between two stdout writes must neither overwrite nor be overwritten

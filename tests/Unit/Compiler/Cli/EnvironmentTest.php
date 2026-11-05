@@ -73,6 +73,33 @@ final class EnvironmentTest extends TestCase
     }
 
     /**
+     * The name agrees with the answer, is memoised, and is the first function
+     * of the list this host lacks (null here, `proc_open` in the restricted
+     * cell; the child-process rows in `Unit\Compiler\Cli\ProcessTest` prove
+     * each function of the list in turn).
+     *
+     * @test
+     */
+    public function theMissingFunctionIsTheFirstOneThisHostLacks(): void
+    {
+        $environment = new Environment();
+        $missing = $environment->missingProcessFunction();
+        $expected = null;
+
+        foreach (Environment::PROCESS_FUNCTIONS as $function) {
+            if (!\function_exists($function)) {
+                $expected = $function;
+
+                break;
+            }
+        }
+
+        self::assertSame($expected, $missing);
+        self::assertSame($missing === null, $environment->processFunctionAvailable());
+        self::assertSame($missing, $environment->missingProcessFunction(), 'memoised');
+    }
+
+    /**
      * The platform key must be one the checksum table is indexed by, or every
      * lookup silently misses and the CLI is never verified.
      *

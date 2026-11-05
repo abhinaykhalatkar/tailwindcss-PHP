@@ -18,6 +18,7 @@ use TailwindPhp\Compiler\PhpEngineCompiler;
 use TailwindPhp\Exception\DriverUnavailableException;
 use TailwindPhp\Support\Filesystem;
 use TailwindPhp\Tests\Support\InMemoryImportResolver;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -93,6 +94,8 @@ final class T04BinaryTamperTest extends TestCase
      */
     public function agenuineBinaryIsSelectedAndActuallyRuns(): void
     {
+        RequiresSpawning::check();
+
         $resolution = $this->resolve('cli', $this->digest());
 
         self::assertSame('cli', $resolution->compiler()->name());
@@ -109,6 +112,8 @@ final class T04BinaryTamperTest extends TestCase
      */
     public function atamperedBinaryIsRefusedUnderAnExplicitCliDriver(): void
     {
+        RequiresSpawning::check();
+
         $genuine = $this->digest();
 
         $this->tamper();
@@ -165,6 +170,8 @@ final class T04BinaryTamperTest extends TestCase
      */
     public function verifyFalseIsWhatMakesTheDifference(): void
     {
+        RequiresSpawning::check();
+
         $genuine = $this->digest();
 
         $this->tamper();
@@ -200,6 +207,8 @@ final class T04BinaryTamperTest extends TestCase
      */
     public function acachedProbeIsTrustedOnStatAloneWhichIsAdeliberateBound(): void
     {
+        RequiresSpawning::check();
+
         $genuine = $this->digest();
         $stat = \stat($this->binary);
 
@@ -271,6 +280,8 @@ final class T04BinaryTamperTest extends TestCase
      */
     public function adigestPinnedUnderAnotherReleaseOrPlatformIsStillAccepted(): void
     {
+        RequiresSpawning::check();
+
         $fs = new Filesystem();
         // A well-formed but *different* release, and a platform this host is
         // not. The keys have to be well-formed now — `fromTable()` validates

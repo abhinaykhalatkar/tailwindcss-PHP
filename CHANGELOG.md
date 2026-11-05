@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The minimum PHP version is 8.2; PHP 7.3–8.1 are no longer supported (they carry published
   security advisories and their tooling cannot be kept advisory-free).
+- On a host without the process functions (`proc_open`, `proc_get_status`, `usleep`,
+  `proc_terminate`, `proc_close`), an explicit `driver: cli` is refused with the driver-unavailable
+  exception (exit code 2 from the console) instead of a PHP error, and `driver: auto` uses the PHP
+  engine there, naming the missing function.
 
 ### Added
 

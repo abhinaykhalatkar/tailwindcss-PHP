@@ -183,6 +183,20 @@ final class DriverResolverTest extends TestCase
         ];
     }
 
+    /**
+     * The reason names the function that is missing, not `proc_open` by habit
+     * (a free host's `disable_functions` may list only `usleep`).
+     *
+     * @test
+     */
+    public function autoNamesTheProcessFunctionThatIsMissing(): void
+    {
+        $resolution = $this->resolver(true, true, 'usleep')->resolve($this->config('auto'), null);
+
+        self::assertSame('php', $resolution->compiler()->name());
+        self::assertSame('auto: using PHP engine because usleep is unavailable on this host', $resolution->reason());
+    }
+
     /** @test */
     public function autoSelectsTheCliWhenEverythingHolds(): void
     {
@@ -410,13 +424,13 @@ final class DriverResolverTest extends TestCase
      * @param bool $known Whether the checksum table recognises the binary.
      * @param bool $procOpen Whether the host reports `proc_open` as usable.
      */
-    private function resolver(bool $known, bool $procOpen = true): DriverResolver
+    private function resolver(bool $known, bool $procOpen = true, ?string $missing = null): DriverResolver
     {
         $digest = $known ? $this->digest : \str_repeat('a', 64);
         $table = ['4.1.18' => ['linux-x64' => $digest]];
 
         return new DriverResolver(
-            $this->environment($procOpen),
+            $this->environment($missing ?? ($procOpen ? null : 'proc_open')),
             new BinaryVerifier(Checksums::fromTable($table), $this->fs, $this->root),
             new PhpEngineCompiler(),
             function (string $binaryPath, string $version): CompilerInterface {
@@ -430,27 +444,38 @@ final class DriverResolverTest extends TestCase
      * which a test can set, and it is `final` by house rule — hence
      * `EnvironmentInterface`. The double delegates everything except the one
      * answer under test, so path confinement stays genuine rather than stubbed.
+     *
+     * Both answers are the double's, not the host's: no row here spawns (the CLI
+     * compiler is {@see self::cliDouble()}), so the "cli selected" rows run and
+     * mean the same on the restricted shared-host cell too (TASK-0061).
      */
-    private function environment(bool $procOpen): EnvironmentInterface
+    private function environment(?string $missing): EnvironmentInterface
     {
-        if ($procOpen) {
-            return new Environment();
-        }
-
-        return new class () implements EnvironmentInterface {
+        return new class ($missing) implements EnvironmentInterface {
             /**
              * @var Environment
              */
             private $real;
 
-            public function __construct()
+            /**
+             * @var string|null
+             */
+            private $missing;
+
+            public function __construct(?string $missing)
             {
                 $this->real = new Environment();
+                $this->missing = $missing;
             }
 
             public function processFunctionAvailable(): bool
             {
-                return false;
+                return $this->missing === null;
+            }
+
+            public function missingProcessFunction(): ?string
+            {
+                return $this->missing;
             }
 
             /**

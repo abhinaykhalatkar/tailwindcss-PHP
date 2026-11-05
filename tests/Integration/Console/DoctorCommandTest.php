@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace TailwindPhp\Tests\Integration\Console;
 
 use PHPUnit\Framework\TestCase;
+use TailwindPhp\Compiler\Cli\Process;
 use TailwindPhp\Console\Application;
 use TailwindPhp\Console\Command\BuildCommand;
 use TailwindPhp\Console\Command\DoctorCommand;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempProject;
 
 /**
@@ -51,6 +53,51 @@ final class DoctorCommandTest extends TestCase
         foreach (['php', 'ext-json', 'proc_open', 'open_basedir', 'cache_dir', 'driver'] as $row) {
             self::assertStringContainsString($row, $out, 'the report omits ' . $row);
         }
+    }
+
+    /**
+     * The process row names the function that is actually missing (TASK-0061):
+     * a host whose `disable_functions` lists only `usleep` is told so, not that
+     * `proc_open` is the problem. Run in a child PHP, because a disabled
+     * function cannot be faked inside this process.
+     *
+     * @test
+     */
+    public function theProcessRowNamesTheFunctionThatIsMissing(): void
+    {
+        RequiresSpawning::check();
+
+        $root = $this->root();
+        $autoload = \dirname(__DIR__, 3) . '/vendor/autoload.php';
+        $code = 'require ' . \var_export($autoload, true) . ';'
+            . ' exit((new \\TailwindPhp\\Console\\Application([new \\TailwindPhp\\Console\\Command\\DoctorCommand('
+            . \var_export($root, true) . ')]))->run(["bin", "doctor", "--json"], STDOUT, STDERR));';
+        $temp = \sys_get_temp_dir();
+        $result = (new Process())->run(
+            [\PHP_BINARY, '-d', 'disable_functions=usleep', '-r', $code],
+            $root,
+            [
+                'PATH' => (string) \getenv('PATH'),
+                'SystemRoot' => (string) \getenv('SystemRoot'),
+                'TMP' => $temp,
+                'TEMP' => $temp,
+                'TMPDIR' => $temp,
+            ],
+            60.0
+        );
+
+        $report = \json_decode($result->stdout(), true);
+        self::assertIsArray($report, $result->stdout() . $result->stderr());
+        self::assertIsArray($report['checks'] ?? null);
+
+        $states = [];
+
+        foreach ($report['checks'] as $row) {
+            $states[(string) $row['check']] = (string) $row['state'];
+        }
+
+        self::assertSame('warn', $states['usleep'] ?? null, 'the row is labelled with the missing function');
+        self::assertArrayNotHasKey('proc_open', $states, 'and not with proc_open');
     }
 
     /**

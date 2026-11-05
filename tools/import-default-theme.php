@@ -17,6 +17,12 @@
 
 declare(strict_types=1);
 
+// Maintainer tooling, command line only: under a web SAPI it would see no arguments and run its
+// default action. Nothing is printed, because `STDERR` does not exist there.
+if (\PHP_SAPI !== 'cli') {
+    exit(2);
+}
+
 // The command line as a list of strings: `$argv` is not declared to every analysis runtime
 // (PHPStan on PHP 8.5), and in the CLI `$_SERVER['argv']` is the same list.
 $cliArguments = array_values(array_filter((array) ($_SERVER['argv'] ?? []), 'is_string'));

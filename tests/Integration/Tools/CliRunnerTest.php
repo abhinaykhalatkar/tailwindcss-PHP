@@ -10,6 +10,7 @@ use TailwindPhp\Compiler\Cli\Environment;
 use TailwindPhp\Compiler\Cli\Process;
 use TailwindPhp\Support\Filesystem;
 use TailwindPhp\Support\Hash;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 use TailwindPhp\Tools\CliRunner;
 
@@ -57,6 +58,8 @@ final class CliRunnerTest extends TestCase
     /** @test */
     public function itRunsTheBinaryWithAFixedArgvAndReturnsTheStylesheet(): void
     {
+        RequiresSpawning::check();
+
         $css = $this->runner()->compile("/* entry */\n", 'flex underline', [], false);
 
         self::assertStringContainsString('.flex{--fake:1}', $css);
@@ -77,6 +80,8 @@ final class CliRunnerTest extends TestCase
     /** @test */
     public function minifyIsOneMoreLiteralFlag(): void
     {
+        RequiresSpawning::check();
+
         $css = $this->runner()->compile("/* entry */\n", 'flex', [], true);
 
         $argv = $this->record()['argv'];
@@ -89,6 +94,8 @@ final class CliRunnerTest extends TestCase
     /** @test */
     public function theInputAndTheCandidateLineReachTheBinaryVerbatim(): void
     {
+        RequiresSpawning::check();
+
         $this->runner()->compile("@import \"tailwindcss\" source(none);\n", 'p-4 md:flex', [], false);
 
         $record = $this->record();
@@ -100,6 +107,8 @@ final class CliRunnerTest extends TestCase
     /** @test */
     public function theChildInheritsNothingFromTheParentEnvironment(): void
     {
+        RequiresSpawning::check();
+
         \putenv('TWPHP_RUNNER_PROBE=leaked');
 
         try {
@@ -118,6 +127,8 @@ final class CliRunnerTest extends TestCase
     /** @test */
     public function theTemporaryProjectIsRemovedAfterwards(): void
     {
+        RequiresSpawning::check();
+
         $this->runner()->compile("/* entry */\n", 'flex', [], false);
 
         $directories = [];
@@ -136,6 +147,8 @@ final class CliRunnerTest extends TestCase
     /** @test */
     public function aNonZeroExitSurfacesTheBinariesOwnMessage(): void
     {
+        RequiresSpawning::check();
+
         try {
             $this->runner()->compile("/* fake: fail 2 */\n", 'flex', [], false);
             self::fail('A failing binary must not look like success.');
@@ -148,6 +161,8 @@ final class CliRunnerTest extends TestCase
     /** @test */
     public function aBinaryThatWritesNothingIsAnError(): void
     {
+        RequiresSpawning::check();
+
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('wrote no stylesheet');
 
@@ -278,6 +293,8 @@ final class CliRunnerTest extends TestCase
     /** @test */
     public function anOrdinaryPartialNameIsAccepted(): void
     {
+        RequiresSpawning::check();
+
         $css = $this->runner()->compile("/* entry */\n", 'flex', ['import-partial.css' => ".card{}\n"], false);
 
         self::assertStringContainsString('.flex{--fake:1}', $css);

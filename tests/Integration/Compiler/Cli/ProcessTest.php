@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use TailwindPhp\Compiler\Cli\Process;
 use TailwindPhp\Exception\CliProcessException;
 use TailwindPhp\Exception\CliTimeoutException;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -38,6 +39,7 @@ final class ProcessTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        RequiresSpawning::check();
 
         $this->dir = TempTree::make('tailwindphp-process');
         $this->fixture = $this->dir . '/child.php';

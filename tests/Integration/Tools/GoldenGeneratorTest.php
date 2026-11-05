@@ -11,6 +11,7 @@ use TailwindPhp\Compiler\Cli\Process;
 use TailwindPhp\Support\Filesystem;
 use TailwindPhp\Support\Hash;
 use TailwindPhp\Tests\Conformance\Support\CorpusPaths;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 use TailwindPhp\Tools\CliRunner;
 use TailwindPhp\Tools\GoldenGenerator;
@@ -197,6 +198,8 @@ final class GoldenGeneratorTest extends TestCase
     /** @test */
     public function throughTheRealRunnerTheFixtureBinarysBannerlessOutputIsRefused(): void
     {
+        RequiresSpawning::check();
+
         $environment = new Environment();
         $runner = new CliRunner(
             self::fixtureBinary(),

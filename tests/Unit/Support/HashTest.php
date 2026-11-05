@@ -7,6 +7,7 @@ namespace TailwindPhp\Tests\Unit\Support;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use TailwindPhp\Support\Hash;
+use TailwindPhp\Tests\Support\FailingStream;
 
 final class HashTest extends TestCase
 {
@@ -31,6 +32,7 @@ final class HashTest extends TestCase
         }
 
         $this->tempFiles = [];
+        FailingStream::unregister();
 
         parent::tearDown();
     }
@@ -104,6 +106,29 @@ final class HashTest extends TestCase
         $this->expectException(\RuntimeException::class);
 
         Hash::sha256File($missing);
+    }
+
+    /**
+     * PHP 8's `fread()` answers false on a failed read (TASK-0059 typed that
+     * branch): the stream is refused, never hashed as if it had ended there.
+     *
+     * @test
+     */
+    public function aReadThatFailsAfterOpeningIsRefusedRatherThanHashedShort(): void
+    {
+        FailingStream::register();
+        $stream = \fopen(FailingStream::SCHEME . '://read-fails', 'rb');
+
+        self::assertNotFalse($stream);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Reading the stream being hashed failed.');
+
+        try {
+            Hash::sha256Stream($stream);
+        } finally {
+            \fclose($stream);
+        }
     }
 
     /** @test */

@@ -8,6 +8,9 @@ use PHPUnit\Framework\TestCase;
 use TailwindPhp\Compiler\Cli\Checksums;
 use TailwindPhp\Console\Application;
 use TailwindPhp\Console\Command\InstallCliCommand;
+use TailwindPhp\Console\Output;
+use TailwindPhp\Tests\Support\FailingStream;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -58,11 +61,6 @@ final class T18InstallCliTest extends TestCase
     protected function setUp(): void
     {
         $this->root = TempTree::make('tailwindphp-t18');
-        $this->base = $this->startServer();
-
-        if ($this->base === null) {
-            self::markTestSkipped('could not bind a loopback port for the fixture release server');
-        }
     }
 
     protected function tearDown(): void
@@ -76,11 +74,82 @@ final class T18InstallCliTest extends TestCase
         }
 
         $this->server = null;
+        FailingStream::unregister();
 
         if ($this->root !== null) {
             TempTree::remove($this->root);
             $this->root = null;
         }
+    }
+
+    /**
+     * The stream path (hosts without cURL): a read that fails after the
+     * release opened is a failed download, never a short body that the digest
+     * then judges. Driven through the private copy loop with a wrapper source,
+     * because this host has cURL and user wrappers do not reach cURL.
+     *
+     * @test
+     */
+    public function theStreamPathTreatsAFailedReadAsAFailedDownload(): void
+    {
+        FailingStream::register();
+        [$ok, $written, $err] = $this->copy(FailingStream::SCHEME . '://read-fails', 'php://memory');
+
+        self::assertFalse($ok);
+        self::assertSame(0, $written);
+        self::assertStringContainsString('Download failed: reading the release failed.', $err);
+    }
+
+    /**
+     * A short write (a full disk) on the stream path: the temporary file would
+     * be truncated while the digest of the whole body still matched, so a
+     * truncated binary would pass verification. The write is checked, and the
+     * digest only sees what was written. The cURL path already aborts on a short
+     * write: its write callback returns what `fwrite()` wrote, and cURL fails the
+     * transfer when that is not the chunk length.
+     *
+     * @test
+     */
+    public function theStreamPathTreatsAShortWriteAsAFailedDownload(): void
+    {
+        FailingStream::register();
+        $source = 'data://application/octet-stream;base64,' . \base64_encode(\str_repeat('x', 1000));
+        [$ok, , $err, $digest] = $this->copy($source, FailingStream::SCHEME . '://short-write');
+
+        self::assertFalse($ok);
+        self::assertStringContainsString('Download failed: writing the temporary file failed', $err);
+        self::assertSame(\hash('sha256', ''), $digest, 'nothing short-written was hashed');
+    }
+
+    /**
+     * After the close, the temporary file must hold every byte that was hashed,
+     * on both paths. `fclose()` reports true whatever its final flush did, so
+     * the size is the check that can fire: a file shorter than the body is a
+     * failed download, never a binary renamed into place.
+     *
+     * @test
+     */
+    public function aTemporaryFileShorterThanTheBodyIsAFailedDownload(): void
+    {
+        $file = $this->root . '/short.download';
+        \file_put_contents($file, \str_repeat('x', 10));
+
+        [$ok, $err] = $this->writtenInFull($file, 20);
+
+        self::assertFalse($ok);
+        self::assertStringContainsString('Download failed: the temporary file holds 10 of 20 bytes.', $err);
+    }
+
+    /** @test */
+    public function aTemporaryFileHoldingTheWholeBodyPasses(): void
+    {
+        $file = $this->root . '/whole.download';
+        \file_put_contents($file, \str_repeat('x', 20));
+
+        [$ok, $err] = $this->writtenInFull($file, 20);
+
+        self::assertTrue($ok);
+        self::assertSame('', $err);
     }
 
     /**
@@ -303,7 +372,7 @@ final class T18InstallCliTest extends TestCase
         $command = new InstallCliCommand(
             (string) $this->root,
             $sapi,
-            (string) $this->base,
+            $this->base(),
             Checksums::fromTable($table)
         );
 
@@ -323,6 +392,83 @@ final class T18InstallCliTest extends TestCase
     }
 
     /**
+     * The fixture release server's base URL, started on first use; a host that
+     * cannot spawn (the restricted cell) or bind a port skips the row.
+     */
+    private function base(): string
+    {
+        if ($this->base === null) {
+            RequiresSpawning::check();
+            $this->base = $this->startServer();
+
+            if ($this->base === null) {
+                self::markTestSkipped('could not bind a loopback port for the fixture release server');
+            }
+        }
+
+        return $this->base;
+    }
+
+    /**
+     * The installer's size check after the close, run on its own.
+     *
+     * @return array{0: bool, 1: string} ok, stderr
+     */
+    private function writtenInFull(string $file, int $written): array
+    {
+        $stdout = \fopen('php://memory', 'w+');
+        $stderr = \fopen('php://memory', 'w+');
+
+        self::assertIsResource($stdout);
+        self::assertIsResource($stderr);
+
+        $method = new \ReflectionMethod(InstallCliCommand::class, 'writtenInFull');
+        $ok = $method->invoke(
+            new InstallCliCommand((string) $this->root),
+            $file,
+            $written,
+            new Output($stdout, $stderr, false),
+            'https://example.invalid/release'
+        );
+
+        \rewind($stderr);
+
+        return [(bool) $ok, (string) \stream_get_contents($stderr)];
+    }
+
+    /**
+     * The installer's stream copy loop, run on its own.
+     *
+     * @return array{0: bool, 1: int, 2: string, 3: string} ok, bytes counted, stderr, digest of what was hashed
+     */
+    private function copy(string $sourceUrl, string $targetUrl): array
+    {
+        $source = \fopen($sourceUrl, 'rb');
+        $target = \fopen($targetUrl, 'wb');
+        $stdout = \fopen('php://memory', 'w+');
+        $stderr = \fopen('php://memory', 'w+');
+
+        self::assertIsResource($source);
+        self::assertIsResource($target);
+        self::assertIsResource($stdout);
+        self::assertIsResource($stderr);
+
+        $hash = \hash_init('sha256');
+        $written = 0;
+        $method = new \ReflectionMethod(InstallCliCommand::class, 'copyStream');
+        $ok = $method->invokeArgs(
+            new InstallCliCommand((string) $this->root),
+            [$source, $target, $hash, &$written, new Output($stdout, $stderr, false), 'https://example.invalid/release']
+        );
+
+        \fclose($source);
+        \fclose($target);
+        \rewind($stderr);
+
+        return [(bool) $ok, $written, (string) \stream_get_contents($stderr), \hash_final($hash)];
+    }
+
+    /**
      * A directory junction on Windows, a symlink elsewhere.
      *
      * Windows `symlink()` needs a privilege ordinary accounts lack, so the
@@ -334,6 +480,9 @@ final class T18InstallCliTest extends TestCase
         if (\DIRECTORY_SEPARATOR !== '\\') {
             return @\symlink($target, $link);
         }
+
+        // `mklink` runs through `proc_open`: skipped where the host disables it.
+        RequiresSpawning::check();
 
         $command = 'cmd /c mklink /J '
             . \escapeshellarg(\str_replace('/', '\\', $link))

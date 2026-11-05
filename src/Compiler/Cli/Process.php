@@ -8,6 +8,7 @@ use TailwindPhp\Engine\Diagnostic\Diagnostic;
 use TailwindPhp\Engine\Diagnostic\DiagnosticBag;
 use TailwindPhp\Exception\CliProcessException;
 use TailwindPhp\Exception\CliTimeoutException;
+use TailwindPhp\Exception\DriverUnavailableException;
 
 /**
  * The only place in the library that starts a child process
@@ -18,13 +19,18 @@ use TailwindPhp\Exception\CliTimeoutException;
  * **argv is never assembled from user data.** The caller passes an array whose
  * only members are a confined binary path, literal flags, and absolute paths
  * this library generated. That is what makes shell injection a non-question
- * rather than a question answered carefully (T-03) — and the array form of
- * `proc_open` means no shell is involved at all.
+ * rather than a question answered carefully (T-03) — and `proc_open` is always
+ * given the argument **array**, so no shell is involved at all. There is no
+ * string command path.
  *
- * **The string fallback is a leftover.** Array `proc_open` landed in PHP 7.4;
- * below it the arguments had to be joined into a command string, which *does*
- * go through a shell, with every element passed through `escapeshellarg()` —
- * see {@see self::commandFor()}. On the 8.2 floor that branch is never taken.
+ * **No process functions, no attempt.** A shared host that disables any of
+ * {@see Environment::PROCESS_FUNCTIONS} (start, poll, kill, reap) gets the
+ * library's {@see DriverUnavailableException}, naming the missing function,
+ * before anything is created — never PHP's "Call to undefined function" `Error`,
+ * and never a child that is started and then left unreaped or unkilled. On PHP 8
+ * a disabled function does not exist, so `function_exists()` is the whole
+ * question. `auto` never gets here on such a host (the resolver asks the same
+ * list first); an explicit `driver: cli` does.
  *
  * **A timeout must actually kill.** A hung binary holding an FPM worker is a
  * denial of service (T-05), so the loop is bounded by a deadline and ends with
@@ -61,6 +67,7 @@ final class Process
      *
      * @throws CliProcessException When the process cannot be spawned.
      * @throws CliTimeoutException When it outlives $timeoutSec.
+     * @throws DriverUnavailableException When this host lacks one of {@see Environment::PROCESS_FUNCTIONS}.
      */
     public function run(array $argv, string $cwd, array $env, float $timeoutSec): ProcessResult
     {
@@ -77,33 +84,53 @@ final class Process
             throw new \InvalidArgumentException('cli.timeout must be greater than zero.');
         }
 
-        $outFile = $this->temporaryFile();
-        $errFile = $this->temporaryFile();
+        // Checked after the arguments (a configuration error is reported as one
+        // anywhere) and before anything is created on disk.
+        foreach (Environment::PROCESS_FUNCTIONS as $function) {
+            if (!\function_exists($function)) {
+                throw new DriverUnavailableException(
+                    'cli',
+                    $function . ' is unavailable on this host; use driver: php'
+                );
+            }
+        }
 
-        // stdout and stderr go to **files**, not pipes. `stream_set_blocking()`
-        // has no effect on `proc_open` pipes on Windows — they stay blocking —
-        // so a `fread()` on a stream the child never writes to blocks until the
-        // child exits, and a child blocked writing to a full pipe never exits.
-        // That deadlock hangs the worker for the whole timeout with no output.
-        // Files cannot deadlock: the OS drains the child, and we read afterwards.
-        // Done on every platform so there is one code path, exercised everywhere.
-        $spec = [
-            0 => ['pipe', 'r'],
-            1 => ['file', $outFile, 'wb'],
-            2 => ['file', $errFile, 'wb'],
-        ];
-
-        $pipes = [];
-        $started = \hrtime(true);
+        $outFile = null;
+        $errFile = null;
+        $handle = null;
+        // Set once the child is reaped (exited and closed, or killed): until
+        // then any exception leaving this method must take the child with it.
+        $reaped = false;
 
         try {
+            $outFile = $this->temporaryFile();
+            $errFile = $this->temporaryFile();
+
+            // stdout and stderr go to **files**, not pipes. `stream_set_blocking()`
+            // has no effect on `proc_open` pipes on Windows — they stay blocking —
+            // so a `fread()` on a stream the child never writes to blocks until the
+            // child exits, and a child blocked writing to a full pipe never exits.
+            // That deadlock hangs the worker for the whole timeout with no output.
+            // Files cannot deadlock: the OS drains the child, and we read afterwards.
+            // Done on every platform so there is one code path, exercised everywhere.
+            $spec = [
+                0 => ['pipe', 'r'],
+                1 => ['file', $outFile, 'wb'],
+                2 => ['file', $errFile, 'wb'],
+            ];
+
+            $pipes = [];
+            $started = \hrtime(true);
+
             // Suppressed and immediately checked: a missing binary raises a
             // warning and returns false, which is the answer we act on (doc 18).
-            $handle = @\proc_open($this->commandFor($argv), $spec, $pipes, $cwd, $env);
+            $spawned = @\proc_open($argv, $spec, $pipes, $cwd, $env);
 
-            if (!\is_resource($handle)) {
+            if (!\is_resource($spawned)) {
                 throw new CliProcessException(-1, '');
             }
+
+            $handle = $spawned;
 
             // Nothing is ever written to the child: closing stdin immediately
             // means a binary that reads from it gets EOF rather than hanging.
@@ -138,6 +165,7 @@ final class Process
 
             if ($timedOut) {
                 $this->kill($handle);
+                $reaped = true;
 
                 $bag = new DiagnosticBag();
                 $bag->add(new Diagnostic(
@@ -150,6 +178,7 @@ final class Process
             }
 
             \proc_close($handle);
+            $reaped = true;
 
             return new ProcessResult(
                 $exitCode,
@@ -158,12 +187,46 @@ final class Process
                 $durationMs,
                 false
             );
+        } catch (\Throwable $thrown) {
+            // Whatever went wrong after the spawn (a disabled clock, a failed
+            // poll, an exception from anywhere in the loop), the child does not
+            // outlive this call (T-05): the timeout path's kill, best effort,
+            // never masking what is being thrown.
+            if ($handle !== null && !$reaped) {
+                $this->killQuietly($handle);
+            }
+
+            throw $thrown;
         } finally {
             // The temp files are ours and hold only the child's output; a
             // failure to remove one is not worth reporting over whatever else
             // is being thrown.
-            @\unlink($outFile);
-            @\unlink($errFile);
+            if ($outFile !== null) {
+                @\unlink($outFile);
+            }
+
+            if ($errFile !== null) {
+                @\unlink($errFile);
+            }
+        }
+    }
+
+    /**
+     * {@see self::kill()} on the exception path: whatever fails inside it, the
+     * terminate and the reap are still tried, and nothing it throws replaces
+     * the exception that brought us here.
+     *
+     * @param resource $handle
+     */
+    private function killQuietly($handle): void
+    {
+        try {
+            $this->kill($handle);
+        } catch (\Throwable $ignored) {
+            if (\is_resource($handle)) {
+                @\proc_terminate($handle, 9);
+                @\proc_close($handle);
+            }
         }
     }
 
@@ -197,35 +260,6 @@ final class Process
         $contents = @\file_get_contents($path, false, null, 0, self::MAX_OUTPUT_BYTES);
 
         return $contents === false ? '' : $contents;
-    }
-
-    /**
-     * The `proc_open` first argument.
-     *
-     * PHP **7.4** added the array form, which hands the arguments to the OS
-     * directly and involves no shell at all; it is what every supported PHP
-     * (8.2 and later) gets. Below 7.4 only the string form existed, so each
-     * element was quoted with `escapeshellarg()` — the arguments are already
-     * trusted (T-03), and that was the belt to those braces. The branch stays
-     * until it is removed on purpose; it is unreachable on the floor.
-     *
-     * @param list<string> $argv
-     *
-     * @return list<string>|string
-     */
-    private function commandFor(array $argv)
-    {
-        if (\PHP_VERSION_ID >= 70400) {
-            return $argv;
-        }
-
-        $quoted = [];
-
-        foreach ($argv as $argument) {
-            $quoted[] = \escapeshellarg($argument);
-        }
-
-        return \implode(' ', $quoted);
     }
 
 
@@ -312,7 +346,7 @@ final class Process
             2 => ['file', $this->nullDevice(), 'wb'],
         ];
         $pipes = [];
-        $killer = @\proc_open($this->commandFor($argv), $spec, $pipes, null, null);
+        $killer = @\proc_open($argv, $spec, $pipes, null, null);
 
         if (!\is_resource($killer)) {
             return;

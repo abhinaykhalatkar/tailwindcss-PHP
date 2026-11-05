@@ -63,9 +63,35 @@ final class Environment implements EnvironmentInterface
     private const WINDOWS_MACHINE_VARS = ['SystemRoot', 'PATHEXT'];
 
     /**
-     * @var bool|null Memoised; null until first asked.
+     * Every function a spawn needs, start to finish:
+     *
+     * - `proc_open` starts the child;
+     * - `proc_get_status` polls it;
+     * - `usleep` waits between polls (some free hosts list it in
+     *   `disable_functions`);
+     * - `proc_terminate` kills it at the deadline;
+     * - `proc_close` reaps it.
+     *
+     * A host missing any of them cannot run the CLI safely — with
+     * `proc_get_status` gone the child would be started and never reaped, with
+     * `proc_terminate` gone a hung one never killed (T-05) — so `auto` asks for
+     * all of them here and {@see Process::run()} refuses on the same list before
+     * anything is created. `hrtime` and `microtime` are not on it: nobody
+     * disables them, and `run()` kills and reaps the child on any exception.
+     *
+     * @internal
      */
-    private $processAvailable;
+    public const PROCESS_FUNCTIONS = ['proc_open', 'proc_get_status', 'usleep', 'proc_terminate', 'proc_close'];
+
+    /**
+     * @var bool Whether {@see self::$missingFunction} has been worked out.
+     */
+    private $probed = false;
+
+    /**
+     * @var string|null Memoised: the first missing process function, or null.
+     */
+    private $missingFunction;
 
     /**
      * @var string|null
@@ -81,17 +107,35 @@ final class Environment implements EnvironmentInterface
      */
     public function processFunctionAvailable(): bool
     {
-        if ($this->processAvailable !== null) {
-            return $this->processAvailable;
+        return $this->missingProcessFunction() === null;
+    }
+
+    /**
+     * The first of {@see self::PROCESS_FUNCTIONS} this host lacks (absent, in
+     * `disable_functions` or on a Suhosin blacklist), or null when it has them
+     * all. Memoised like {@see self::processFunctionAvailable()}.
+     */
+    public function missingProcessFunction(): ?string
+    {
+        if ($this->probed) {
+            return $this->missingFunction;
         }
 
-        $available = \function_exists('proc_open')
-            && !$this->isDisabled('proc_open')
-            && !$this->isSuhosinBlacklisted('proc_open');
+        $this->probed = true;
 
-        $this->processAvailable = $available;
+        foreach (self::PROCESS_FUNCTIONS as $function) {
+            if (
+                !\function_exists($function)
+                || $this->isDisabled($function)
+                || $this->isSuhosinBlacklisted($function)
+            ) {
+                $this->missingFunction = $function;
 
-        return $available;
+                break;
+            }
+        }
+
+        return $this->missingFunction;
     }
 
     /**

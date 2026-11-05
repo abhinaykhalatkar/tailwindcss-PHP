@@ -421,6 +421,13 @@ final class InstallCliCommand extends AbstractCommand
 
         \fclose($handle);
 
+        // `fclose()` reports true whatever its final flush did, so it proves
+        // nothing; the size on disk does. Both paths count every byte they
+        // hashed into $written.
+        if ($ok && !$this->writtenInFull($temporary, $written, $output, $url)) {
+            $ok = false;
+        }
+
         if (!$ok) {
             @\unlink($temporary);
 
@@ -428,6 +435,29 @@ final class InstallCliCommand extends AbstractCommand
         }
 
         return \hash_final($context);
+    }
+
+    /**
+     * Whether the closed temporary file holds exactly the $written bytes that
+     * were hashed; one error line when it does not (the caller then deletes it).
+     */
+    private function writtenInFull(string $temporary, int $written, Output $output, string $url): bool
+    {
+        \clearstatcache(true, $temporary);
+        $size = \is_file($temporary) ? \filesize($temporary) : false;
+
+        if ($size === $written) {
+            return true;
+        }
+
+        $output->error(\sprintf(
+            'Download failed: the temporary file holds %s of %d bytes. %s',
+            $size === false ? 'none' : (string) $size,
+            $written,
+            $this->manualInstructions($url)
+        ));
+
+        return false;
     }
 
     /**
@@ -551,15 +581,36 @@ final class InstallCliCommand extends AbstractCommand
             return false;
         }
 
-        // Copied by hand rather than with `stream_copy_to_stream` so the digest
-        // and the size ceiling both see every chunk as it arrives.
+        $ok = $this->copyStream($source, $handle, $hash, $written, $output, $url);
+        \fclose($source);
+
+        return $ok;
+    }
+
+    /**
+     * Copy the release body into the temporary file, feeding the digest with
+     * exactly the bytes that were written. Copied by hand rather than with
+     * `stream_copy_to_stream` so the digest and the size ceiling both see every
+     * chunk as it arrives. False, with one error line, on a failed read, a short
+     * write or the size ceiling; the caller then deletes the file.
+     *
+     * @param resource $source
+     * @param resource $target
+     */
+    private function copyStream(
+        $source,
+        $target,
+        \HashContext $hash,
+        int &$written,
+        Output $output,
+        string $url
+    ): bool {
         while (!\feof($source)) {
             $chunk = \fread($source, self::CHUNK_BYTES);
 
             // A failed read answers false (PHP 8: `string|false`): that is a
             // failed download, reported like the others, never a short body.
             if ($chunk === false) {
-                \fclose($source);
                 $output->error('Download failed: reading the release failed. ' . $this->manualInstructions($url));
 
                 return false;
@@ -574,7 +625,6 @@ final class InstallCliCommand extends AbstractCommand
             $written += \strlen($chunk);
 
             if ($written > self::MAX_BYTES) {
-                \fclose($source);
                 $output->error(
                     'Download failed: the release exceeded ' . self::MAX_BYTES . ' bytes. '
                     . $this->manualInstructions($url)
@@ -583,11 +633,20 @@ final class InstallCliCommand extends AbstractCommand
                 return false;
             }
 
-            \hash_update($hash, $chunk);
-            \fwrite($handle, $chunk);
-        }
+            // Written, checked, then hashed. On a short write (a full disk) the
+            // file would be truncated while the digest of the whole body still
+            // matched, and the truncated binary would pass verification.
+            if (\fwrite($target, $chunk) !== \strlen($chunk)) {
+                $output->error(
+                    'Download failed: writing the temporary file failed (is the disk full?). '
+                    . $this->manualInstructions($url)
+                );
 
-        \fclose($source);
+                return false;
+            }
+
+            \hash_update($hash, $chunk);
+        }
 
         return true;
     }

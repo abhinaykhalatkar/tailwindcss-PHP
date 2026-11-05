@@ -7,6 +7,7 @@ namespace TailwindPhp\Tests\Security;
 use PHPUnit\Framework\TestCase;
 use TailwindPhp\Scanner\FileFinder;
 use TailwindPhp\Scanner\Root;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempTree;
 
 /**
@@ -169,6 +170,9 @@ final class T14SymlinkTest extends TestCase
      */
     private static function makeJunction(string $link, string $target): bool
     {
+        // `mklink` runs through `exec`: skipped where the host disables it.
+        RequiresSpawning::checkExec();
+
         $command = \sprintf(
             'mklink /J "%s" "%s"',
             \str_replace('/', '\\', $link),

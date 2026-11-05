@@ -15,6 +15,12 @@
 
 declare(strict_types=1);
 
+// Maintainer tooling, command line only: under a web SAPI it would see no arguments and run its
+// default action. Nothing is printed, because `STDERR` does not exist there.
+if (\PHP_SAPI !== 'cli') {
+    exit(2);
+}
+
 require_once __DIR__ . '/StaticSecurityChecks.php';
 
 $repositoryRoot = dirname(__DIR__);

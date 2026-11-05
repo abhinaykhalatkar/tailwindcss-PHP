@@ -20,10 +20,18 @@ namespace TailwindPhp\Compiler\Cli;
 interface EnvironmentInterface
 {
     /**
-     * Whether a child process can be started at all — `proc_open` present, not
-     * in `disable_functions`, not on a Suhosin blacklist.
+     * Whether a child process can be started, polled, killed and reaped — every
+     * one of {@see Environment::PROCESS_FUNCTIONS} present, not in
+     * `disable_functions`, not on a Suhosin blacklist.
      */
     public function processFunctionAvailable(): bool;
+
+    /**
+     * The first of {@see Environment::PROCESS_FUNCTIONS} this host lacks, or
+     * null when {@see self::processFunctionAvailable()} is true — so a reason or
+     * a report can name the function rather than guess `proc_open`.
+     */
+    public function missingProcessFunction(): ?string;
 
     /**
      * @param string|null $configured `cli.binary` from the config, or null.

@@ -38,6 +38,7 @@ use TailwindPhp\Tests\Support\CountingCompiler;
 use TailwindPhp\Tests\Support\RecordingFilesystem;
 use TailwindPhp\Tests\Support\RecordingLock;
 use TailwindPhp\Tests\Support\RecordingLogger;
+use TailwindPhp\Tests\Support\RequiresSpawning;
 use TailwindPhp\Tests\Support\TempProject;
 
 /**
@@ -502,6 +503,8 @@ final class LifecycleTest extends TestCase
      */
     public function theConfiguredCliDriverIsHonoured(): void
     {
+        RequiresSpawning::check();
+
         $binary = $this->installFakeBinary();
 
         $result = $this->pipeline(['driver' => 'cli', 'cli' => ['binary' => $binary]])->resolve('app');
@@ -686,6 +689,8 @@ final class LifecycleTest extends TestCase
      */
     public function anUnverifiableBinaryUnderAutoIsLoggedAsAChecksumWarning(): void
     {
+        RequiresSpawning::check();
+
         $binary = $this->installFakeBinary();
         $this->checksums = Checksums::fromTable([
             '4.1.18' => [(new Environment())->platform() => \str_repeat('0', 64)],
@@ -707,6 +712,8 @@ final class LifecycleTest extends TestCase
      */
     public function theOverlayNamesTheDriverThatRan(): void
     {
+        RequiresSpawning::check();
+
         $binary = $this->installFakeBinary();
         $this->project()->writeFile(
             'assets/styles/main.css',
@@ -792,6 +799,8 @@ final class LifecycleTest extends TestCase
      */
     public function anEditedImportedStylesheetCompilesWithTheCliDriver(): void
     {
+        RequiresSpawning::check();
+
         $binary = $this->installFakeBinary();
         $overrides = ['driver' => 'cli', 'cli' => ['binary' => $binary]];
         $this->project()->writeFile('assets/styles/partial.css', ".a { color: red; }\n");
@@ -1272,6 +1281,9 @@ final class LifecycleTest extends TestCase
     private function link(string $link, string $target): bool
     {
         if (\DIRECTORY_SEPARATOR === '\\') {
+            // `mklink` runs through `exec`: skipped where the host disables it.
+            RequiresSpawning::checkExec();
+
             $output = [];
             $code = 1;
             $command = 'cmd /c mklink /J '
