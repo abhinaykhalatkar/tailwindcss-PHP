@@ -30,10 +30,9 @@ final class FrozenClockTest extends TestCase
     {
         $clock = new FrozenClock(1000);
 
-        self::assertSame(1000, $clock->now());
-        self::assertSame(1000, $clock->now());
-        self::assertSame(1000.0, $clock->microtime());
-        self::assertSame(1000.0, $clock->microtime());
+        // Two readings of each: both still the frozen instant.
+        self::assertSame([1000, 1000], [$clock->now(), $clock->now()]);
+        self::assertSame([1000.0, 1000.0], [$clock->microtime(), $clock->microtime()]);
     }
 
     /** @test */

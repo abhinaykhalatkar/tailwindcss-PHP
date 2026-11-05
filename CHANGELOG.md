@@ -16,8 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Composer package skeleton: `abhinaykhalatkar/tailwindcss-php`, PSR-4 autoloading for the
   `TailwindPhp\` namespace, the `tailwind-php` console entry point, and a runtime
-  requirement set limited to `php >=8.2`, `ext-json`, `psr/log` and
-  `symfony/polyfill-php80`.
+  requirement set limited to `php >=8.2`, `ext-json` and `psr/log`.
 - PHPUnit test suites `Unit`, `Integration`, `Conformance`, `Security` and
   `Benchmark`, configured to run identically on PHPUnit 10 and 11.
 - PHPStan at level 8, analysing `src/` and `tools/` with `phpVersion: 70300` for now.

@@ -37,9 +37,9 @@ use TailwindPhp\Tailwind;
 final class DoctorCommand extends AbstractCommand
 {
     /**
-     * The PHP this library supports (ADR-007).
+     * The PHP floor `composer.json` declares (`require.php`).
      */
-    private const MINIMUM_PHP = '7.3.0';
+    private const MINIMUM_PHP = '8.2.0';
 
     /**
      * Extensions worth reporting on, and what each one buys.
@@ -136,7 +136,7 @@ final class DoctorCommand extends AbstractCommand
             $output,
             'php',
             \PHP_VERSION,
-            'This library needs PHP ' . self::MINIMUM_PHP . ' or newer (ADR-007).'
+            'This library needs PHP ' . self::MINIMUM_PHP . ' or newer.'
         );
     }
 

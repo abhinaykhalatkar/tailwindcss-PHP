@@ -18,6 +18,10 @@
 
 declare(strict_types=1);
 
+// The command line as a list of strings: `$argv` is not declared to every analysis runtime
+// (PHPStan on PHP 8.5), and in the CLI `$_SERVER['argv']` is the same list.
+$cliArguments = array_values(array_filter((array) ($_SERVER['argv'] ?? []), 'is_string'));
+
 $repositoryRoot = dirname(__DIR__);
 $autoload = $repositoryRoot . '/vendor/autoload.php';
 
@@ -31,7 +35,7 @@ require_once $autoload;
 require_once __DIR__ . '/DriverComparison.php';
 
 exit(TailwindPhp\Tools\DriverComparison::execute(
-    array_slice($argv, 1),
+    array_slice($cliArguments, 1),
     static function (string $text): void {
         fwrite(\STDOUT, $text);
     },

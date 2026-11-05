@@ -27,6 +27,10 @@
 
 declare(strict_types=1);
 
+// The command line as a list of strings: `$argv` is not declared to every analysis runtime
+// (PHPStan on PHP 8.5), and in the CLI `$_SERVER['argv']` is the same list.
+$cliArguments = array_values(array_filter((array) ($_SERVER['argv'] ?? []), 'is_string'));
+
 require_once __DIR__ . '/PhpMatrix.php';
 
 $repositoryRoot = dirname(__DIR__);
@@ -47,4 +51,6 @@ $matrix = new TailwindPhp\Tools\PhpMatrix(
     $environment
 );
 
-exit($matrix->execute(array_values(array_slice($argv, 1)), $scoop . '/apps', TailwindPhp\Tools\PhpMatrix::XAMPP_PHP));
+$arguments = array_values(array_slice($cliArguments, 1));
+
+exit($matrix->execute($arguments, $scoop . '/apps', TailwindPhp\Tools\PhpMatrix::XAMPP_PHP));

@@ -622,8 +622,12 @@ final class ScanCacheTest extends TestCase
         $filesystem = self::fakeFilesystem(['/project/a.twig' => 'flex p-4']);
         $cache = new ScanCache($filesystem, self::recordingExtractor(), self::noPrepass(), [], 1024, '/project');
 
-        self::assertSame(['flex', 'p-4'], $cache->extract('a.twig', 's', 100, 8));
-        self::assertSame(['flex', 'p-4'], $cache->extract('a.twig', 's', 100, 8));
+        // Both calls answer the same set; the second is the memo's (the throwing
+        // filesystem would otherwise fail it).
+        self::assertSame(
+            [['flex', 'p-4'], ['flex', 'p-4']],
+            [$cache->extract('a.twig', 's', 100, 8), $cache->extract('a.twig', 's', 100, 8)]
+        );
     }
 
     /**

@@ -26,6 +26,10 @@
 
 declare(strict_types=1);
 
+// The command line as a list of strings: `$argv` is not declared to every analysis runtime
+// (PHPStan on PHP 8.5), and in the CLI `$_SERVER['argv']` is the same list.
+$cliArguments = array_values(array_filter((array) ($_SERVER['argv'] ?? []), 'is_string'));
+
 $repositoryRoot = dirname(__DIR__);
 $autoload = $repositoryRoot . '/vendor/autoload.php';
 
@@ -41,7 +45,7 @@ require_once __DIR__ . '/CompileProfiler.php';
 $usage = "Usage: php tools/profile-compile.php <corpus-key> [--runs=N] [--minify]\n";
 
 try {
-    $arguments = TailwindPhp\Tools\CompileProfiler::parseArguments(array_values(array_slice($argv, 1)));
+    $arguments = TailwindPhp\Tools\CompileProfiler::parseArguments(array_values(array_slice($cliArguments, 1)));
     $profiler = new TailwindPhp\Tools\CompileProfiler(new TailwindPhp\Tests\Conformance\Support\CorpusPaths());
 
     if (!in_array($arguments['key'], $profiler->keys(), true)) {

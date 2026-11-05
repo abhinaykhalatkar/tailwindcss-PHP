@@ -91,9 +91,11 @@ final class TokenizerTest extends TestCase
     {
         $tokenizer = new Tokenizer('a');
 
-        self::assertSame(Token::IDENT, $tokenizer->next()->type);
-        self::assertSame(Token::EOF, $tokenizer->next()->type);
-        self::assertSame(Token::EOF, $tokenizer->next()->type);
+        // Three calls in one expression: what each returns, in order, is the fact.
+        self::assertSame(
+            [Token::IDENT, Token::EOF, Token::EOF],
+            [$tokenizer->next()->type, $tokenizer->next()->type, $tokenizer->next()->type]
+        );
     }
 
     /** @test */

@@ -70,7 +70,7 @@ final class Hash
      *
      * @param resource $resource
      *
-     * @throws \RuntimeException When $resource is not a readable stream.
+     * @throws \RuntimeException When $resource is not a readable stream, or a read fails.
      */
     public static function sha256Stream($resource): string
     {
@@ -90,6 +90,12 @@ final class Hash
 
         while (!\feof($resource)) {
             $chunk = \fread($resource, self::CHUNK_BYTES);
+
+            // A failed read answers false (PHP 8: `string|false`): refused like
+            // an unreadable stream, never hashed as if the stream ended there.
+            if ($chunk === false) {
+                throw new \RuntimeException('Reading the stream being hashed failed.');
+            }
 
             if ($chunk === '') {
                 break;

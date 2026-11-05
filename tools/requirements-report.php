@@ -23,13 +23,17 @@
 
 declare(strict_types=1);
 
+// The command line as a list of strings: `$argv` is not declared to every analysis runtime
+// (PHPStan on PHP 8.5), and in the CLI `$_SERVER['argv']` is the same list.
+$cliArguments = array_values(array_filter((array) ($_SERVER['argv'] ?? []), 'is_string'));
+
 if (\PHP_SAPI !== 'cli') {
     fwrite(\STDERR, "requirements-report must be run from the command line.\n");
     exit(2);
 }
 
 $root = dirname(__DIR__);
-$options = array_slice($argv, 1);
+$options = array_slice($cliArguments, 1);
 $strict = in_array('--strict', $options, true);
 $check = $strict || in_array('--check', $options, true);
 $json = in_array('--json', $options, true);

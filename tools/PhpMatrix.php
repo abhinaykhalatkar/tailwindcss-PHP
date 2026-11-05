@@ -922,10 +922,8 @@ final class PhpMatrix
                 while (\microtime(true) - $started < $timeout) {
                     $status = \proc_get_status($handle);
 
-                    // `false` only under the 7.3 stubs PHPStan is still pinned to (as in Cli\Process);
-                    // TASK-0059 drops both checks when the pin moves to 80200.
-                    if ($status === false || $status['running'] !== true) {
-                        $exit = $status === false ? -1 : (int) $status['exitcode'];
+                    if ($status['running'] !== true) {
+                        $exit = (int) $status['exitcode'];
                         $timedOut = false;
 
                         break;

@@ -556,9 +556,17 @@ final class InstallCliCommand extends AbstractCommand
         while (!\feof($source)) {
             $chunk = \fread($source, self::CHUNK_BYTES);
 
-            // An empty read means nothing more is coming, whether that is the
-            // end of the body or a read that failed. Either way the loop is
-            // over, and `feof()` is what decides the difference.
+            // A failed read answers false (PHP 8: `string|false`): that is a
+            // failed download, reported like the others, never a short body.
+            if ($chunk === false) {
+                \fclose($source);
+                $output->error('Download failed: reading the release failed. ' . $this->manualInstructions($url));
+
+                return false;
+            }
+
+            // An empty read means nothing more is coming: the loop is over, and
+            // `feof()` is what decides whether the body really ended.
             if ($chunk === '') {
                 break;
             }

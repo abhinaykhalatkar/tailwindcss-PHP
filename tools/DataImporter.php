@@ -348,8 +348,7 @@ final class DataImporter
             }
 
             if (\strncmp($argument, '--binary=', 9) === 0) {
-                $value = \substr($argument, 9);
-                $binary = $value === false ? '' : $value;
+                $binary = \substr($argument, 9);
 
                 continue;
             }

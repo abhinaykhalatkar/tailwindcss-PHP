@@ -18,13 +18,13 @@ use TailwindPhp\Exception\CliTimeoutException;
  * **argv is never assembled from user data.** The caller passes an array whose
  * only members are a confined binary path, literal flags, and absolute paths
  * this library generated. That is what makes shell injection a non-question
- * rather than a question answered carefully (T-03) — and on PHP ≥ 7.4 the array
- * form of `proc_open` means no shell is involved at all.
+ * rather than a question answered carefully (T-03) — and the array form of
+ * `proc_open` means no shell is involved at all.
  *
- * **The 7.3 fallback is the interesting case.** Array `proc_open` landed in
- * **PHP 7.4**; on the 7.3 floor the arguments must be joined into a command
- * string, which *does* go through a shell. Every element is passed through
- * `escapeshellarg()` — see {@see self::commandFor()}.
+ * **The string fallback is a leftover.** Array `proc_open` landed in PHP 7.4;
+ * below it the arguments had to be joined into a command string, which *does*
+ * go through a shell, with every element passed through `escapeshellarg()` —
+ * see {@see self::commandFor()}. On the 8.2 floor that branch is never taken.
  *
  * **A timeout must actually kill.** A hung binary holding an FPM worker is a
  * denial of service (T-05), so the loop is bounded by a deadline and ends with
@@ -118,10 +118,10 @@ final class Process
             while (true) {
                 $status = \proc_get_status($handle);
 
-                if ($status === false || $status['running'] !== true) {
+                if ($status['running'] !== true) {
                     // `exitcode` is only valid on the first call that observes
                     // the exit; after that it is -1, so it is taken here.
-                    $exitCode = $status === false ? -1 : (int) $status['exitcode'];
+                    $exitCode = (int) $status['exitcode'];
                     $timedOut = false;
 
                     break;
@@ -203,10 +203,11 @@ final class Process
      * The `proc_open` first argument.
      *
      * PHP **7.4** added the array form, which hands the arguments to the OS
-     * directly and involves no shell at all. On the 7.3 floor only the string
-     * form exists, so each element is quoted with `escapeshellarg()` — the
-     * arguments are already trusted (T-03), and this is the belt to that
-     * braces.
+     * directly and involves no shell at all; it is what every supported PHP
+     * (8.2 and later) gets. Below 7.4 only the string form existed, so each
+     * element was quoted with `escapeshellarg()` — the arguments are already
+     * trusted (T-03), and that was the belt to those braces. The branch stays
+     * until it is removed on purpose; it is unreachable on the floor.
      *
      * @param list<string> $argv
      *
@@ -285,9 +286,7 @@ final class Process
         // Checked rather than assumed: once the child has been reaped its pid
         // may already have been recycled by the operating system, and killing a
         // tree by a recycled pid would kill something else entirely.
-        // `is_array` first because on the 7.3 floor `proc_get_status()` is typed
-        // as returning false on failure.
-        if (!\is_array($status) || $status['running'] !== true) {
+        if ($status['running'] !== true) {
             return;
         }
 

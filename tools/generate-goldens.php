@@ -25,6 +25,10 @@
 
 declare(strict_types=1);
 
+// The command line as a list of strings: `$argv` is not declared to every analysis runtime
+// (PHPStan on PHP 8.5), and in the CLI `$_SERVER['argv']` is the same list.
+$cliArguments = array_values(array_filter((array) ($_SERVER['argv'] ?? []), 'is_string'));
+
 $repositoryRoot = dirname(__DIR__);
 $autoload = $repositoryRoot . '/vendor/autoload.php';
 
@@ -42,7 +46,7 @@ $usage = "Usage: php tools/generate-goldens.php [--only=<group|group/entry>] [--
 $only = null;
 $check = false;
 
-foreach (array_slice($argv, 1) as $argument) {
+foreach (array_slice($cliArguments, 1) as $argument) {
     if ($argument === '--check') {
         $check = true;
 
@@ -50,10 +54,8 @@ foreach (array_slice($argv, 1) as $argument) {
     }
 
     if (strncmp($argument, '--only=', 7) === 0) {
-        // Below PHP 8.0 substr() answers false when nothing follows the '='; an
-        // empty selector is then rejected by the generator like any other bad one.
-        $value = substr($argument, 7);
-        $only = $value === false ? '' : $value;
+        // An empty selector ('--only=') is rejected by the generator like any other bad one.
+        $only = substr($argument, 7);
 
         continue;
     }

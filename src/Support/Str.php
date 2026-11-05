@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace TailwindPhp\Support;
 
 /**
- * The handful of byte-safe string helpers the polyfill does not already give us
+ * The handful of byte-safe string helpers PHP does not already give us
  * (design doc 17 §Support).
  *
  * Everything here works on **bytes**. `ext-mbstring` is not a dependency
@@ -16,8 +16,7 @@ namespace TailwindPhp\Support;
  * reaching for an extension.
  *
  * `str_contains`, `str_starts_with` and `str_ends_with` are deliberately absent:
- * they come from `symfony/polyfill-php80`, which is a required runtime
- * dependency (design doc 14 §Forbidden constructs).
+ * they are native on the PHP 8.2 floor.
  */
 final class Str
 {

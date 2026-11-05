@@ -214,7 +214,8 @@ final class CandidateAttribution
 
     private static function codePoint(int $code): string
     {
-        if ($code === 0 || $code > 0x10FFFF || ($code >= 0xD800 && $code <= 0xDFFF)) {
+        // Zero, a negative, a surrogate or past U+10FFFF is not a code point (CSS Syntax §4.3.7).
+        if ($code <= 0 || $code > 0x10FFFF || ($code >= 0xD800 && $code <= 0xDFFF)) {
             return self::REPLACEMENT;
         }
 

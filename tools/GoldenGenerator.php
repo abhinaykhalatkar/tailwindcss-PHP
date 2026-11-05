@@ -712,17 +712,12 @@ final class GoldenGenerator
     }
 
     /**
-     * `substr()` that is always a string.
-     *
-     * Below PHP 8.0 it answers `false` when the start is exactly the length of
-     * the text, and this class slices at the very end of its input often enough
-     * (a banner with nothing after it, a rule with no body) for that to matter
-     * on the 7.3 floor.
+     * `substr()` with an optional length. Since PHP 8.0 it is always a string
+     * (`''` where 7.x answered `false`, at the very end of the text — a banner
+     * with nothing after it, a rule with no body).
      */
     private static function slice(string $text, int $start, ?int $length = null): string
     {
-        $slice = $length === null ? \substr($text, $start) : \substr($text, $start, $length);
-
-        return $slice === false ? '' : $slice;
+        return $length === null ? \substr($text, $start) : \substr($text, $start, $length);
     }
 }

@@ -503,8 +503,8 @@ final class ApplyResolver
         $count = 0;
         $stack = [$nodes];
 
-        while ($stack !== []) {
-            foreach (\array_pop($stack) as $node) {
+        while (($top = \array_pop($stack)) !== null) {
+            foreach ($top as $node) {
                 if ($node instanceof \TailwindPhp\Engine\Css\Node\Declaration) {
                     if (++$count > $limit) {
                         return $count;
@@ -545,8 +545,8 @@ final class ApplyResolver
         $count = 0;
         $stack = [$nodes];
 
-        while ($stack !== []) {
-            foreach (\array_pop($stack) as $node) {
+        while (($top = \array_pop($stack)) !== null) {
+            foreach ($top as $node) {
                 if (++$count > $limit) {
                     return $count;
                 }

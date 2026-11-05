@@ -7,8 +7,9 @@ namespace TailwindPhp\Config;
 /**
  * The compiler driver names (design doc 06, ADR-002).
  *
- * A `final class` with constants rather than an enum: enums are PHP 8.1 and the
- * floor is 7.3 (ADR-007, design doc 14 §Forbidden constructs).
+ * A `final class` with constants rather than an enum: the class predates the
+ * 8.2 floor (it was written for 7.3, where enums did not exist), and turning it
+ * into an enum is a modernisation of its own.
  */
 final class Driver
 {

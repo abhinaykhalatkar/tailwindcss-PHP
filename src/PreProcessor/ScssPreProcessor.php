@@ -120,15 +120,12 @@ final class ScssPreProcessor implements PreProcessorInterface
         };
         $text = self::mapCodeSegments($entryText, $shield);
 
-        // Referenced by name rather than imported: the analyser runs at the 7.3
-        // floor where scssphp 2.x cannot be reflected, and `class_exists` above
-        // is the real guard. `OutputStyle::EXPANDED` is a string constant in
-        // 1.x and an enum case in 2.x; `constant()` resolves both.
-        $styleClass = 'ScssPhp\\ScssPhp\\OutputStyle';
-        $style = \class_exists($styleClass) ? \constant($styleClass . '::EXPANDED') : 'expanded';
-
+        // Referenced by name rather than imported: scssphp is optional and
+        // `class_exists` above is the real guard. `OutputStyle::EXPANDED` is a
+        // string constant in 1.x and an enum case in 2.x, and both supported
+        // majors (`^1.12 || ^2.0`) have it; `constant()` resolves either.
         $compiler = new $compilerClass();
-        $compiler->setOutputStyle($style);
+        $compiler->setOutputStyle(\constant('ScssPhp\\ScssPhp\\OutputStyle::EXPANDED'));
 
         foreach ($searchDirs as $dir) {
             $compiler->addImportPath($dir);
